@@ -1,0 +1,4 @@
+{% load static %}<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{% block title %}UniFi SMS{% endblock %}</title><link rel="stylesheet" href="{% static 'inbox/app.css' %}">{% block extra_styles %}{% endblock %}<link rel="icon" href="data:,"></head>
+<body><header class="topbar"><a class="brand" href="/" aria-label="UniFi SMS home"><span class="brand-icon">≋</span> UniFi <b>SMS</b></a><span class="local-label">YOUR PRIVATE INBOX</span>{% if user.is_authenticated %}<form action="{% url 'logout' %}" method="post">{% csrf_token %}<span class="username">{{ user.username }}</span><button class="quiet" type="submit">Sign out</button></form>{% endif %}</header>
+{% block content %}{% endblock %}{% block scripts %}{% endblock %}</body></html>

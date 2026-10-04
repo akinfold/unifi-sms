@@ -1,0 +1,22 @@
+name: unifi-sms
+services:
+  app:
+    image: unifi-sms:0.1.0
+    build: .
+    container_name: unifi-sms-app
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${PORT:-8080}:8000"
+    env_file: .env
+    environment:
+      DATA_DIR: /data
+    volumes:
+      - sms-data:/data
+      - ./secrets:/run/secrets:ro
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    stop_grace_period: 45s
+volumes:
+  sms-data:
