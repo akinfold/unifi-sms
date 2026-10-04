@@ -1,14 +1,23 @@
 {% extends 'inbox/base.html' %}{% load static %}{% block content %}
-<main class="workspace"><section class="page-heading"><div><div class="eyebrow">MESSAGE ARCHIVE</div><h1>Inbox<span class="count" id="count">0</span></h1><p class="muted">Messages saved here. Space freed on your LTE device.</p></div><a class="settings-link" href="{% url 'smtp-settings' %}">Settings</a><div class="sync-card"><span class="dot" id="sync-dot"></span><div><strong id="sync-title">Connecting…</strong><small id="sync-detail">Checking importer status</small><small id="sync-time"></small></div></div></section>
-<section class="device-card" aria-label="SIM phone number">
-  <div class="device-number"><span class="device-label">SIM PHONE NUMBER</span><strong id="phone-number">Checking…</strong></div>
-  <div class="device-status" id="phone-status" role="status" aria-live="polite"><span id="phone-detail">Reading device information</span><small id="phone-time"></small></div>
-  <button type="button" id="refresh-phone" class="quiet" aria-describedby="phone-status" disabled>Update from device</button>
-</section>
-<div id="alert" class="alert" role="alert" hidden></div>
-<section class="mailbox"><div class="toolbar"><label class="search"><span aria-hidden="true">⌕</span><input id="search" type="search" placeholder="Search messages or senders" aria-label="Search messages or senders"></label><label class="filter"><input type="checkbox" id="unread"> Unread only</label><button id="refresh" class="quiet">Refresh</button></div>
-<div class="mail-columns"><section class="message-list" aria-label="Messages"><div class="selection-bar"><label><input id="select-all" type="checkbox" aria-label="Select all messages on this page"> <span id="selection-count">Select messages</span></label><button id="delete" class="danger" disabled>Delete selected</button></div><div id="list" aria-live="polite"><div class="empty">Loading your inbox…</div></div><div class="pagination"><button id="previous" class="quiet" disabled>← Previous</button><span id="page-label">Page 1 of 1</span><button id="next" class="quiet" disabled>Next →</button></div></section>
-<article class="reader" id="reader" aria-label="Message content"><div class="reader-placeholder"><span class="envelope" aria-hidden="true">✉</span><h2>A little breathing room.</h2><p>Select a message to read it here.<br>Your archive stays with you.</p></div></article></div></section><footer class="footer"><span><span class="tiny-dot"></span> Stored locally in SQLite</span><span>UniFi SMS · Private by design</span></footer></main>
+<main class="workspace">
+  <section class="page-heading"><div><div class="eyebrow">MESSAGES</div><h1>Inbox <span class="count" id="count">0</span></h1><p class="muted">SMS messages archived from your LTE device.</p></div><div class="sync-card" role="status"><span class="dot" id="sync-dot"></span><div><strong id="sync-title">Connecting…</strong><small id="sync-detail">Checking importer status</small><small id="sync-time"></small></div></div></section>
+  <section class="device-card" aria-label="Device information">
+    <div class="device-overview"><span class="device-symbol" aria-hidden="true"><svg viewBox="0 0 32 40"><rect x="6" y="2" width="20" height="34" rx="5"/><path d="M12 32h8M11 10a7 7 0 0 1 10 0M14 13a3 3 0 0 1 4 0"/><circle cx="16" cy="17" r="1"/></svg></span><div><span class="device-label">Source device</span><strong id="device-model">Checking…</strong><span class="device-caption" id="model-detail">Model reported by device</span></div></div>
+    <div class="device-property"><span class="device-label">Device address</span><strong id="device-address">Checking…</strong><span class="device-caption">Configured SSH host</span></div>
+    <div class="device-property"><span class="device-label">SIM phone number</span><strong id="phone-number">Checking…</strong><span class="device-caption">Read from the SIM</span></div>
+    <div class="device-update"><button type="button" id="refresh-phone" class="quiet" aria-describedby="phone-status" disabled>Update from device</button><small id="phone-time"></small></div>
+    <div class="device-status" id="phone-status" role="status" aria-live="polite"><span id="phone-detail">Reading device information</span></div>
+  </section>
+  <div id="alert" class="alert" role="alert" hidden></div>
+  <section class="mailbox" aria-label="SMS archive">
+    <div class="toolbar"><label class="search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/></svg><input id="search" type="search" placeholder="Search messages or senders" aria-label="Search messages or senders"></label><label class="filter"><input type="checkbox" id="unread"> Unread only</label><button id="refresh" class="quiet">Refresh</button></div>
+    <div class="mail-columns">
+      <section class="message-list" aria-label="Messages"><div class="selection-bar"><label><input id="select-all" type="checkbox" aria-label="Select all messages on this page"> <span id="selection-count">Select messages</span></label><button id="delete" class="danger" disabled>Delete selected</button></div><div id="list" aria-live="polite"><div class="empty">Loading your inbox…</div></div><div class="pagination"><button id="previous" class="quiet" disabled>← Previous</button><span id="page-label">Page 1 of 1</span><button id="next" class="quiet" disabled>Next →</button></div></section>
+      <article class="reader" id="reader" aria-label="Message content"><div class="reader-placeholder"><span class="envelope" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 6 9 7 9-7"/></svg></span><h2>No message selected</h2><p>Select a message to view its contents<br>and delivery details.</p></div></article>
+    </div>
+  </section>
+  <footer class="footer"><span><span class="tiny-dot"></span> Local SMS archive</span><span>Refreshes automatically every 30 seconds</span></footer>
+</main>
 <dialog id="delete-dialog"><h2>Delete selected messages?</h2><p>The selected messages will be permanently removed from this archive.</p><p class="muted">Messages awaiting device cleanup cannot be deleted yet.</p><div class="dialog-actions"><button id="cancel-delete" class="quiet">Cancel</button><button id="confirm-delete" class="danger solid">Delete messages</button></div></dialog>
 <form id="csrf" hidden>{% csrf_token %}</form>
 {% endblock %}{% block scripts %}<script src="{% static 'inbox/app.js' %}" defer></script>{% endblock %}

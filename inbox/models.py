@@ -48,6 +48,9 @@ class SyncStatus(models.Model):
 class DeviceInfo(models.Model):
     source = models.CharField(max_length=64, primary_key=True)
     numbers = models.JSONField(default=list)
+    model = models.CharField(max_length=64, blank=True)
+    model_attempted_at = models.DateTimeField(null=True)
+    model_error = models.BooleanField(default=False)
     requested_at = models.DateTimeField(null=True)
     attempted_at = models.DateTimeField(null=True)
     completed_at = models.DateTimeField(null=True)

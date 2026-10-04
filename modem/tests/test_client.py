@@ -1,4 +1,6 @@
 import unittest
+from io import BytesIO
+from unittest.mock import MagicMock
 
 from modem.client import ModemClient, ModemError
 
@@ -63,6 +65,30 @@ class ClientTests(unittest.TestCase):
                 client._channel = FakeChannel(b"__UNIFI_SMS_BEGIN__\n" + response + b"\r\nOK\r\n")
                 with self.assertRaises(ModemError):
                     client.phone_numbers()
+
+    def test_device_model_uses_board_name(self):
+        client = self.client()
+        stdout = BytesIO(b"U-LTE-Pro-EU\n")
+        stdout.channel = MagicMock()
+        stdout.channel.recv_exit_status.return_value = 0
+        client._ssh = MagicMock()
+        client._ssh.exec_command.return_value = (None, stdout, None)
+        self.assertEqual(client.device_model(), "U-LTE-Pro-EU")
+        command = client._ssh.exec_command.call_args.args[0]
+        self.assertIn("board.name", command)
+        self.assertIn("/etc/board.info", command)
+
+    def test_device_model_rejects_missing_or_invalid_board_name(self):
+        for output in (b"", b"<script>\n", b"model\nother\n"):
+            with self.subTest(output=output):
+                client = self.client()
+                stdout = BytesIO(output)
+                stdout.channel = MagicMock()
+                stdout.channel.recv_exit_status.return_value = 0
+                client._ssh = MagicMock()
+                client._ssh.exec_command.return_value = (None, stdout, None)
+                with self.assertRaises(ModemError):
+                    client.device_model()
 
     def test_missing_read_and_error(self):
         client = self.client()

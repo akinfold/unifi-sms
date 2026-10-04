@@ -63,8 +63,8 @@ function renderPhone(data) {
   byId("phone-detail").textContent = ({
     waiting: "Waiting for the first device check.",
     queued: "Waiting for the importer to check the device…",
-    refreshing: "Reading the SIM number from the device…",
-    ok: "Read from the SIM · checked automatically every hour",
+    refreshing: "Reading device information…",
+    ok: "Device information is checked automatically every hour",
     empty: "This SIM does not provide a phone number.",
     unconfigured: "Configure the LTE SSH connection to read the number.",
     error: data.numbers.length ? "Update failed. Showing the last saved number." : data.error
@@ -83,6 +83,9 @@ async function syncStatus() {
     byId("sync-detail").textContent = data.detail;
     byId("sync-time").textContent = data.last_success ? `Last import ${date(data.last_success)}` : "No completed import yet";
     byId("sync-dot").className = `dot ${data.state}`;
+    byId("device-address").textContent = data.device.address || "Not configured";
+    byId("device-model").textContent = data.device.model || "Not available";
+    byId("model-detail").textContent = data.device.error ? (data.device.model ? "Update failed · saved model" : "Could not read device model") : "Model reported by device";
     renderPhone(data.phone);
   } catch (error) { showError(error); }
 }

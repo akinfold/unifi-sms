@@ -1,4 +1,25 @@
 {% load static %}<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{% block title %}UniFi SMS{% endblock %}</title><link rel="stylesheet" href="{% static 'inbox/app.css' %}">{% block extra_styles %}{% endblock %}<link rel="icon" href="data:,"></head>
-<body><header class="topbar"><a class="brand" href="/" aria-label="UniFi SMS home"><span class="brand-icon">≋</span> UniFi <b>SMS</b></a><span class="local-label">YOUR PRIVATE INBOX</span>{% if user.is_authenticated %}<form action="{% url 'logout' %}" method="post">{% csrf_token %}<span class="username">{{ user.username }}</span><button class="quiet" type="submit">Sign out</button></form>{% endif %}</header>
-{% block content %}{% endblock %}{% block scripts %}{% endblock %}</body></html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}UniFi SMS{% endblock %}</title>
+  <link rel="stylesheet" href="{% static 'inbox/app.css' %}">{% block extra_styles %}{% endblock %}
+  <link rel="icon" href="data:,">
+</head>
+<body class="{% if user.is_authenticated %}signed-in{% else %}signed-out{% endif %}">
+<a class="skip-link" href="#main-content">Skip to content</a>
+<header class="topbar">
+  <a class="brand" href="{% url 'home' %}" aria-label="UniFi SMS home"><span class="brand-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4V5Z"/><path d="M8 9h8M8 12h5"/></svg></span><span>UniFi <b>SMS</b></span></a>
+  <span class="local-label">SMS archive</span>
+  {% if user.is_authenticated %}<form action="{% url 'logout' %}" method="post">{% csrf_token %}<span class="username">{{ user.username }}</span><button class="quiet" type="submit">Sign out</button></form>{% else %}<span class="admin-label">Administrator access</span>{% endif %}
+</header>
+{% if user.is_authenticated %}
+<nav class="sidebar" aria-label="Main navigation">
+  <a href="{% url 'home' %}" class="nav-item {% if request.resolver_match.url_name == 'home' %}active{% endif %}" {% if request.resolver_match.url_name == 'home' %}aria-current="page"{% endif %}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 5-2 9v6h20v-6l-2-9H4Z"/><path d="M2 14h6l2 3h4l2-3h6M7 9h10"/></svg><span>Inbox</span></a>
+  <a href="{% url 'smtp-settings' %}" class="nav-item {% if request.resolver_match.url_name == 'smtp-settings' %}active{% endif %}" {% if request.resolver_match.url_name == 'smtp-settings' %}aria-current="page"{% endif %}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m10 3-1 3-3 1-3 3 2 2-2 2 3 3 3 1 1 3h4l1-3 3-1 3-3-2-2 2-2-3-3-3-1-1-3h-4Z"/><circle cx="12" cy="12" r="3"/></svg><span>Settings</span></a>
+  <span class="sidebar-caption">SMS</span>
+</nav>
+{% endif %}
+<div id="main-content" tabindex="-1">{% block content %}{% endblock %}</div>
+{% block scripts %}{% endblock %}
+</body></html>

@@ -7,7 +7,7 @@ from django.contrib.auth.models import User
 from django.test import Client, TestCase, override_settings
 from django.utils import timezone
 
-from .device import device_source, phone_status, request_phone_refresh
+from .device import device_source, device_status, phone_status, request_phone_refresh
 from .models import DeviceInfo, Installation, Message
 from .sync import importer_lock, refresh_phone_once, sync_once
 
@@ -30,6 +30,7 @@ class PhoneNumberTests(TestCase):
         self.modem.__enter__.return_value = self.modem
         self.modem.__exit__.return_value = False
         self.modem.phone_numbers.return_value = ["+15550102001"]
+        self.modem.device_model.return_value = "U-LTE-Pro-EU"
         self.modem.list_pdus.return_value = {}
         self.factory = MagicMock(return_value=self.modem)
 
@@ -37,10 +38,12 @@ class PhoneNumberTests(TestCase):
         refresh_phone_once(self.factory)
         first = phone_status()
         self.assertEqual(first["numbers"], ["+15550102001"])
+        self.assertEqual(device_status(), {"address": "modem.example.invalid", "model": "U-LTE-Pro-EU", "error": False})
         self.assertEqual(first["state"], "ok")
         self.assertIsNotNone(first["checked_at"])
         refresh_phone_once(self.factory)
         self.modem.phone_numbers.assert_called_once_with()
+        self.modem.device_model.assert_called_once_with()
         DeviceInfo.objects.update(attempted_at=timezone.now() - timedelta(hours=2))
         refresh_phone_once(self.factory)
         self.assertEqual(self.modem.phone_numbers.call_count, 2)
@@ -74,6 +77,44 @@ class PhoneNumberTests(TestCase):
         sync_once(self.factory)
         self.modem.list_pdus.assert_called_once_with()
 
+    def test_model_failure_preserves_last_model_and_updates_number(self):
+        refresh_phone_once(self.factory)
+        request_phone_refresh()
+        self.modem.phone_numbers.return_value = ["+15550102002"]
+        self.modem.device_model.side_effect = RuntimeError("private board output")
+        refresh_phone_once(self.factory)
+        self.assertEqual(phone_status()["numbers"], ["+15550102002"])
+        self.assertEqual(phone_status()["state"], "ok")
+        self.assertEqual(device_status(), {"address": "modem.example.invalid", "model": "U-LTE-Pro-EU", "error": True})
+
+    def test_successful_model_refresh_clears_previous_error(self):
+        self.modem.device_model.side_effect = RuntimeError("private board output")
+        refresh_phone_once(self.factory)
+        self.assertTrue(self.client.get("/api/status/").json()["device"]["error"])
+        request_phone_refresh()
+        self.modem.device_model.side_effect = None
+        refresh_phone_once(self.factory)
+        result = self.client.get("/api/status/").json()["device"]
+        self.assertEqual(result["model"], "U-LTE-Pro-EU")
+        self.assertFalse(result["error"])
+
+    def test_old_cache_fills_model_before_hourly_refresh(self):
+        DeviceInfo.objects.create(
+            source=device_source(),
+            numbers=["+15550102001"],
+            attempted_at=timezone.now(),
+            completed_at=timezone.now(),
+        )
+        refresh_phone_once(self.factory)
+        self.modem.device_model.assert_called_once_with()
+        self.assertEqual(device_status()["model"], "U-LTE-Pro-EU")
+
+    def test_model_can_be_read_when_phone_command_fails(self):
+        self.modem.phone_numbers.side_effect = RuntimeError("private output")
+        refresh_phone_once(self.factory)
+        self.assertEqual(phone_status()["state"], "error")
+        self.assertEqual(device_status()["model"], "U-LTE-Pro-EU")
+
     def test_successful_empty_response_clears_previous_number(self):
         refresh_phone_once(self.factory)
         request_phone_refresh()
@@ -94,6 +135,7 @@ class PhoneNumberTests(TestCase):
         with override_settings(LTE_HOST="other.example.invalid"):
             self.assertEqual(phone_status()["numbers"], [])
             self.assertIsNone(phone_status()["checked_at"])
+            self.assertEqual(device_status(), {"address": "other.example.invalid", "model": "", "error": False})
 
     def test_refresh_uses_importer_lock(self):
         with importer_lock() as acquired:
@@ -123,6 +165,7 @@ class PhoneNumberTests(TestCase):
             refresh_phone_once(self.factory)
             self.factory.assert_not_called()
             self.assertEqual(phone_status()["state"], "unconfigured")
+            self.assertEqual(device_status(), {"address": "", "model": "", "error": False})
 
     def test_refresh_requires_admin_post_and_csrf(self):
         self.assertEqual(self.client.get("/api/phone/refresh/").status_code, 405)

@@ -15,7 +15,7 @@ from django.shortcuts import redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 
-from .device import configured, phone_status, request_phone_refresh
+from .device import configured, device_status, phone_status, request_phone_refresh
 from .forms import AdminAuthenticationForm, SetupForm
 from .models import AccessWindow, Installation, Message, Receipt, SyncStatus
 
@@ -194,6 +194,7 @@ def status(request):
             else None,
             "pending": Receipt.objects.filter(cleared_at__isnull=True).count(),
             "phone": phone_status(),
+            "device": device_status(),
         }
     )
 

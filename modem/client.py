@@ -239,6 +239,24 @@ done
                 raise ModemError("Invalid CNUM response") from exc
         return numbers
 
+    def device_model(self) -> str:
+        if self._ssh is None:
+            raise ModemError("Modem session is closed")
+        _, stdout, _ = self._ssh.exec_command(
+            "sed -n '/^board.name=/{s/^board.name=//;p;q;}' /etc/board.info | cut -c 1-128",
+            timeout=self.timeout,
+        )
+        raw = stdout.read(256)
+        if stdout.channel.recv_exit_status() != 0:
+            raise ModemError("Could not read device model")
+        try:
+            model = raw.decode("ascii").strip()
+        except UnicodeDecodeError as exc:
+            raise ModemError("Invalid device model") from exc
+        if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 ._+-]{0,63}", model) is None:
+            raise ModemError("Invalid device model")
+        return model
+
     def list_pdus(self) -> dict[int, str]:
         """Return every stored PDU, keyed by its modem slot."""
         lines = self._request("+CMGL=4")

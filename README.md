@@ -76,13 +76,13 @@ docker compose up -d --force-recreate
 
 For remote browser access, use a TLS reverse proxy, add its public hostname to `ALLOWED_HOSTS`, set its HTTPS origin in `CSRF_TRUSTED_ORIGINS`, and set `REQUIRE_HTTPS=1`. Keep `127.0.0.1` in `ALLOWED_HOSTS` for the health check. Enable `TRUST_PROXY=1` only when the proxy overwrites the forwarded protocol header and clients cannot bypass it.
 
-## SIM phone number
+## Device information
 
-The inbox shows the phone number stored on the SIM and the time of the last successful check. The worker reads it with `AT+CNUM` after administrator setup, checks it automatically every hour, and saves the result in SQLite. Some SIM cards do not store a number; the inbox shows **Not available** when the device returns none.
+The inbox shows the configured SSH address, the hardware model read from `board.name` in `/etc/board.info`, the phone number stored on the SIM, and the time of the last successful SIM check. Device details are visible only to signed-in administrators. The worker reads it with `AT+CNUM` after administrator setup, checks it automatically every hour, and saves the result in SQLite. Some SIM cards do not store a number; the inbox shows **Not available** when the device returns none.
 
-Select **Update from device** to request another check, for example after replacing the SIM. The button shows **Updating…** until the worker finishes. A request waits if the worker is importing messages or forwarding email. Number checks use the same modem lock as SMS imports.
+Select **Update from device** to refresh the model and SIM number, for example after replacing the SIM. The button shows **Updating…** until the worker finishes. A request waits if the worker is importing messages or forwarding email. Number checks use the same modem lock as SMS imports.
 
-If a check fails, the inbox keeps the last saved number and labels it as outdated. A successful empty response clears the previous number. Changing the configured device address, SSH port, or serial port uses a separate cached result. Reading the number does not change the number stored on the SIM.
+If a check fails, the inbox keeps the last saved number and labels it as outdated. A successful empty response clears the previous number. Changing the configured device address, SSH port, or serial port uses a separate cached result. Reading the number does not change the number stored on the SIM. Model checks run independently of SIM number checks. If the model cannot be read, the inbox keeps its saved value and shows that the update failed.
 
 ## Forward SMS by email
 

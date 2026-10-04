@@ -59,6 +59,17 @@ def phone_status():
     }
 
 
+def device_status():
+    if not configured():
+        return {"address": settings.LTE_HOST, "model": "", "error": False}
+    info = DeviceInfo.objects.filter(pk=device_source()).first()
+    return {
+        "address": settings.LTE_HOST,
+        "model": info.model if info else "",
+        "error": info.model_error if info else False,
+    }
+
+
 def request_phone_refresh():
     with transaction.atomic():
         info, _ = DeviceInfo.objects.get_or_create(pk=device_source())
@@ -75,11 +86,12 @@ def refresh_phone(client_factory=ModemClient):
         not info.attempted_at or info.requested_at > info.attempted_at
     )
     interrupted = refreshing(info) and now - info.attempted_at >= RECOVERY_INTERVAL
-    if info.attempted_at and not requested and not interrupted:
+    if info.attempted_at and info.model_attempted_at and not requested and not interrupted:
         if now - info.attempted_at < REFRESH_INTERVAL:
             return
     info.attempted_at = now
-    info.save(update_fields=["attempted_at"])
+    info.model_attempted_at = now
+    info.save(update_fields=["attempted_at", "model_attempted_at"])
     try:
         with client_factory(
             host=settings.LTE_HOST,
@@ -90,15 +102,23 @@ def refresh_phone(client_factory=ModemClient):
             device=settings.LTE_DEVICE,
             storage=settings.LTE_STORAGE,
         ) as client:
-            numbers = client.phone_numbers()
+            try:
+                numbers = client.phone_numbers()
+            except Exception:
+                numbers = None
+            try:
+                model = client.device_model()
+            except Exception:
+                model = None
     except Exception:
-        # Keep transport output and credentials out of the API response.
-        DeviceInfo.objects.filter(pk=info.pk).update(
-            completed_at=timezone.now(),
-            last_error="Could not read the SIM number. Check the device connection and try again.",
-        )
+        numbers = None
+        model = None
+    now = timezone.now()
+    updates = {"completed_at": now, "model_error": model is None}
+    if numbers is None:
+        updates["last_error"] = "Could not read the SIM number. Check the device connection and try again."
     else:
-        now = timezone.now()
-        DeviceInfo.objects.filter(pk=info.pk).update(
-            numbers=numbers, checked_at=now, completed_at=now, last_error=""
-        )
+        updates.update(numbers=numbers, checked_at=now, last_error="")
+    if model is not None:
+        updates["model"] = model
+    DeviceInfo.objects.filter(pk=info.pk).update(**updates)

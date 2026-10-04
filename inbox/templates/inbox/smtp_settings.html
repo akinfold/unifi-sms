@@ -3,8 +3,8 @@
 {% block extra_styles %}<link rel="stylesheet" href="{% static 'inbox/settings.css' %}">{% endblock %}
 {% block content %}
 <main class="workspace settings-workspace">
-  <nav class="settings-nav" aria-label="Settings navigation"><a href="{% url 'home' %}">← Back to inbox</a><span>Settings</span></nav>
-  <section class="page-heading"><div><div class="eyebrow">ADMINISTRATION</div><h1>Email forwarding</h1><p class="muted">Receive new SMS messages by email. Enter your provider’s SMTP settings below.</p></div></section>
+  <nav class="settings-nav" aria-label="Settings navigation"><a href="{% url 'home' %}">← Back to inbox</a><span>Email forwarding</span></nav>
+  <section class="page-heading"><div><div class="eyebrow">SETTINGS</div><h1>Email forwarding</h1><p class="muted">Receive new SMS messages by email. Enter your provider’s SMTP settings below.</p></div></section>
   {% if messages %}<div class="settings-alert success" role="status">{% for message in messages %}{{ message }}{% endfor %}</div>{% endif %}
   {% if env_managed %}<div class="settings-alert notice" role="note"><strong>Configured by environment variables</strong><p>{{ env_notice }}</p><div class="env-keys">Managed variables: {% for key in env_keys %}<code>{{ key }}</code>{% if not forloop.last %}, {% endif %}{% endfor %}</div></div>{% endif %}
   <section class="settings-card">
@@ -62,7 +62,7 @@
     </form>
   </section>
   {% if delivery_summary %}<section class="delivery-summary"><strong>Delivery status</strong><span>{{ delivery_summary.pending }} pending</span>{% if delivery_summary.last_sent %}<span>Last sent {{ delivery_summary.last_sent|date:"Y-m-d H:i" }}</span>{% else %}<span>No email has been sent yet</span>{% endif %}{% if delivery_summary.last_error %}<span class="delivery-error">Latest delivery issue: {{ delivery_summary.last_error }}</span>{% endif %}</section>{% endif %}
-  <footer class="footer"><span>UniFi SMS · Private by design</span></footer>
+  <footer class="footer"><span>UniFi SMS · Administrator settings</span></footer>
 </main>
 {% endblock %}
 {% block scripts %}<script src="{% static 'inbox/settings.js' %}" defer></script>{% endblock %}
