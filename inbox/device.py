@@ -6,6 +6,7 @@ from django.db import transaction
 from django.utils import timezone
 from modem.client import ModemClient
 
+from .connection import get_connection
 from .models import DeviceInfo
 
 
@@ -13,14 +14,18 @@ REFRESH_INTERVAL = timedelta(hours=1)
 RECOVERY_INTERVAL = timedelta(minutes=2)
 
 
-def device_source():
+def device_source(config=None):
+    config = config or get_connection()
     return hashlib.sha256(
-        f"{settings.LTE_HOST}:{settings.LTE_PORT}:{settings.LTE_DEVICE}".encode()
+        f"{config.host}:{config.port}:{config.device}".encode()
     ).hexdigest()
 
 
-def configured():
-    return bool(settings.LTE_HOST and settings.LTE_USERNAME)
+def configured(config=None):
+    try:
+        return (config or get_connection()).configured
+    except ValueError:
+        return False
 
 
 def refreshing(info):
@@ -30,9 +35,16 @@ def refreshing(info):
 
 
 def phone_status():
-    if not configured():
+    try:
+        config = get_connection()
+    except ValueError:
+        return {
+            "state": "error", "numbers": [], "checked_at": None,
+            "error": "Device connection settings are invalid.",
+        }
+    if not config.configured:
         return {"state": "unconfigured", "numbers": [], "checked_at": None, "error": ""}
-    info = DeviceInfo.objects.filter(pk=device_source()).first()
+    info = DeviceInfo.objects.filter(pk=device_source(config)).first()
     state = "waiting"
     error = ""
     if info:
@@ -60,27 +72,33 @@ def phone_status():
 
 
 def device_status():
-    if not configured():
-        return {"address": settings.LTE_HOST, "model": "", "error": False}
-    info = DeviceInfo.objects.filter(pk=device_source()).first()
+    try:
+        config = get_connection()
+    except ValueError:
+        return {"address": "", "model": "", "error": True}
+    if not config.configured:
+        return {"address": config.host, "model": "", "error": False}
+    info = DeviceInfo.objects.filter(pk=device_source(config)).first()
     return {
-        "address": settings.LTE_HOST,
+        "address": config.host,
         "model": info.model if info else "",
         "error": info.model_error if info else False,
     }
 
 
 def request_phone_refresh():
+    config = get_connection()
     with transaction.atomic():
-        info, _ = DeviceInfo.objects.get_or_create(pk=device_source())
+        info, _ = DeviceInfo.objects.get_or_create(pk=device_source(config))
         now = timezone.now()
         if not refreshing(info) or now - info.attempted_at >= RECOVERY_INTERVAL:
             info.requested_at = now
             info.save(update_fields=["requested_at"])
 
 
-def refresh_phone(client_factory=ModemClient):
-    info, _ = DeviceInfo.objects.get_or_create(pk=device_source())
+def refresh_phone(client_factory=ModemClient, config=None):
+    config = config or get_connection()
+    info, _ = DeviceInfo.objects.get_or_create(pk=device_source(config))
     now = timezone.now()
     requested = info.requested_at and (
         not info.attempted_at or info.requested_at > info.attempted_at
@@ -93,15 +111,7 @@ def refresh_phone(client_factory=ModemClient):
     info.model_attempted_at = now
     info.save(update_fields=["attempted_at", "model_attempted_at"])
     try:
-        with client_factory(
-            host=settings.LTE_HOST,
-            port=settings.LTE_PORT,
-            username=settings.LTE_USERNAME,
-            key_filename=settings.LTE_KEY_FILE,
-            known_hosts=settings.LTE_KNOWN_HOSTS,
-            device=settings.LTE_DEVICE,
-            storage=settings.LTE_STORAGE,
-        ) as client:
+        with client_factory(**config.client_kwargs) as client:
             try:
                 numbers = client.phone_numbers()
             except Exception:

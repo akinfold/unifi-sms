@@ -1,0 +1,5 @@
+<div class="setting-field {% if wide %}setting-wide{% endif %}">
+  {{ field.label_tag }}{{ field }}
+  <small id="{{ field.name }}-help">{{ help }}</small>
+  <div id="{{ field.name }}-errors">{% for error in field.errors %}<span class="field-error">{{ error }}</span>{% endfor %}</div>
+</div>

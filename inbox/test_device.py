@@ -1,14 +1,16 @@
+import os
 import tempfile
 from datetime import timedelta
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from django.contrib.auth.models import User
 from django.test import Client, TestCase, override_settings
 from django.utils import timezone
 
 from .device import device_source, device_status, phone_status, request_phone_refresh
-from .models import DeviceInfo, Installation, Message
+from .models import DeviceInfo, DeviceSettings, Installation, Message
+from .test_helpers import seed_connection
 from .sync import importer_lock, refresh_phone_once, sync_once
 
 
@@ -19,11 +21,15 @@ from .sync import importer_lock, refresh_phone_once, sync_once
 )
 class PhoneNumberTests(TestCase):
     def setUp(self):
+        self.env = patch.dict(os.environ, {"LTE_HOST": "modem.example.invalid"})
+        self.env.start()
+        self.addCleanup(self.env.stop)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.override = override_settings(DATA_DIR=Path(self.temp.name))
         self.override.enable()
         self.addCleanup(self.override.disable)
+        seed_connection()
         self.admin = User.objects.create_superuser("administrator", password="Test-password-94!")
         self.client.force_login(self.admin)
         self.modem = MagicMock()
@@ -132,7 +138,8 @@ class PhoneNumberTests(TestCase):
 
     def test_other_device_does_not_reuse_cached_number(self):
         refresh_phone_once(self.factory)
-        with override_settings(LTE_HOST="other.example.invalid"):
+        seed_connection("other.example.invalid")
+        with override_settings():
             self.assertEqual(phone_status()["numbers"], [])
             self.assertIsNone(phone_status()["checked_at"])
             self.assertEqual(device_status(), {"address": "other.example.invalid", "model": "", "error": False})
@@ -161,7 +168,8 @@ class PhoneNumberTests(TestCase):
         refresh_phone_once(self.factory)
         self.factory.assert_not_called()
         Installation.objects.create(pk=1, completed=True)
-        with override_settings(LTE_HOST=""):
+        DeviceSettings.objects.all().delete()
+        with override_settings():
             refresh_phone_once(self.factory)
             self.factory.assert_not_called()
             self.assertEqual(phone_status()["state"], "unconfigured")
@@ -180,7 +188,8 @@ class PhoneNumberTests(TestCase):
         self.assertFalse(DeviceInfo.objects.exists())
 
     def test_unconfigured_connection_rejects_refresh(self):
-        with override_settings(LTE_HOST=""):
+        DeviceSettings.objects.all().delete()
+        with override_settings():
             self.assertEqual(self.client.post("/api/phone/refresh/").status_code, 409)
         self.assertFalse(DeviceInfo.objects.exists())
 

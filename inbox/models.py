@@ -58,6 +58,66 @@ class DeviceInfo(models.Model):
     last_error = models.CharField(max_length=250, blank=True)
 
 
+class DeviceSettings(models.Model):
+    id = models.PositiveSmallIntegerField(primary_key=True, default=1)
+    host = models.CharField(max_length=253, blank=True)
+    port = models.PositiveIntegerField(default=22)
+    username = models.CharField(max_length=254, blank=True)
+    auth_method = models.CharField(
+        max_length=16,
+        choices=[("key_file", "Key file"), ("private_key", "Private key"), ("password", "Password")],
+        default="key_file",
+    )
+    key_file = models.CharField(max_length=1024, default="/run/secrets/lte_key")
+    known_hosts = models.CharField(max_length=1024, default="/run/secrets/known_hosts")
+    host_keys = models.TextField(blank=True)
+    password = models.TextField(blank=True)
+    private_key = models.TextField(blank=True)
+
+    trusted_at = models.DateTimeField(null=True)
+    fingerprint = models.CharField(max_length=100, blank=True)
+    model = models.CharField(max_length=64, blank=True)
+    name = models.CharField(max_length=128, blank=True)
+    address = models.CharField(max_length=64, blank=True)
+    public_key = models.TextField(blank=True)
+
+    def save(self, *args, **kwargs):
+        from .connection import encrypt_secret, is_encrypted_secret
+
+        for field in ("password", "private_key"):
+            value = getattr(self, field)
+            if value and not is_encrypted_secret(value):
+                setattr(self, field, encrypt_secret(value))
+        super().save(*args, **kwargs)
+
+
+class DeviceSetup(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    owner = models.OneToOneField("auth.User", on_delete=models.CASCADE)
+    revision = models.UUIDField(default=uuid.uuid4, editable=False)
+    host = models.CharField(max_length=253)
+    port = models.PositiveIntegerField(default=22)
+    username = models.CharField(max_length=128, blank=True)
+    auth_method = models.CharField(max_length=16, default="password")
+    key_source = models.CharField(max_length=16, default="paste")
+    password = models.TextField(blank=True)
+    private_key = models.TextField(blank=True)
+    public_key = models.TextField(blank=True)
+    probe = models.JSONField(default=dict)
+    probe_id = models.UUIDField(null=True)
+    checked_at = models.DateTimeField(null=True)
+    expires_at = models.DateTimeField()
+
+    def save(self, *args, **kwargs):
+        from .connection import encrypt_secret, is_encrypted_secret
+
+        for field in ("password", "private_key"):
+            value = getattr(self, field)
+            if value and not is_encrypted_secret(value):
+                setattr(self, field, encrypt_secret(value))
+        super().save(*args, **kwargs)
+
+
 class AccessWindow(models.Model):
     key = models.CharField(max_length=64, primary_key=True)
     started_at = models.DateTimeField()

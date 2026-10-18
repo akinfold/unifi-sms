@@ -1,8 +1,10 @@
 import unittest
-from io import BytesIO
-from unittest.mock import MagicMock
+from io import BytesIO, StringIO
+from unittest.mock import MagicMock, patch
 
-from modem.client import ModemClient, ModemError
+import paramiko
+
+from modem.client import ModemClient, ModemError, parse_host_keys, parse_private_key
 
 
 class FakeChannel:
@@ -118,6 +120,53 @@ class ClientTests(unittest.TestCase):
             with self.subTest(slot=slot), self.assertRaises(ValueError):
                 client.delete(slot)
         self.assertEqual(client._channel.sent, [])
+
+    def test_password_auth_uses_only_password_and_inline_host_key(self):
+        key = paramiko.RSAKey.generate(1024)
+        host_keys = f"example.invalid {key.get_name()} {key.get_base64()}"
+        client = ModemClient(
+            "example.invalid", 22, "user", "unused-key", "unused-file",
+            auth_method="password", password="test-secret", host_keys=host_keys,
+        )
+        ssh = MagicMock()
+        ssh.connect.side_effect = RuntimeError("stop before modem session")
+        with patch("paramiko.SSHClient", return_value=ssh), self.assertRaises(RuntimeError):
+            client.__enter__()
+        ssh.load_host_keys.assert_not_called()
+        self.assertIsInstance(ssh.set_missing_host_key_policy.call_args.args[0], paramiko.RejectPolicy)
+        self.assertEqual(ssh.get_host_keys().add.call_args.args[0], "example.invalid")
+        kwargs = ssh.connect.call_args.kwargs
+        self.assertEqual(kwargs["password"], "test-secret")
+        self.assertNotIn("key_filename", kwargs)
+        self.assertNotIn("pkey", kwargs)
+        self.assertFalse(kwargs["look_for_keys"])
+        self.assertFalse(kwargs["allow_agent"])
+
+    def test_inline_key_auth_does_not_offer_file_or_password(self):
+        key = paramiko.RSAKey.generate(1024)
+        stream = StringIO()
+        key.write_private_key(stream)
+        client = ModemClient(
+            "example.invalid", 22, "user", "unused-key", "known_hosts",
+            auth_method="private_key", private_key=stream.getvalue(),
+        )
+        ssh = MagicMock()
+        ssh.connect.side_effect = RuntimeError("stop before modem session")
+        with patch("paramiko.SSHClient", return_value=ssh), self.assertRaises(RuntimeError):
+            client.__enter__()
+        ssh.load_host_keys.assert_called_once_with("known_hosts")
+        kwargs = ssh.connect.call_args.kwargs
+        self.assertIsInstance(kwargs["pkey"], paramiko.RSAKey)
+        self.assertNotIn("password", kwargs)
+        self.assertNotIn("key_filename", kwargs)
+        self.assertFalse(kwargs["look_for_keys"])
+        self.assertFalse(kwargs["allow_agent"])
+
+    def test_invalid_inline_material_has_generic_errors(self):
+        for parser, value in ((parse_private_key, "secret key text"), (parse_host_keys, "bad host key")):
+            with self.subTest(parser=parser.__name__), self.assertRaises(ValueError) as error:
+                parser(value)
+            self.assertNotIn(value, str(error.exception))
 
 
 if __name__ == "__main__":

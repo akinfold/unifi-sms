@@ -8,8 +8,9 @@ from django.db import transaction
 from django.utils import timezone
 from modem.client import ModemClient
 from modem.pdu import decode_pdu
+from .connection import get_connection
 from .models import Message, Receipt, SyncStatus
-from .device import configured, refresh_phone
+from .device import refresh_phone
 from .views import initialized
 from .forwarding import queue_forward
 
@@ -91,11 +92,16 @@ def archive(source, slot, pdu):
 
 
 def refresh_phone_once(client_factory=ModemClient):
-    if not initialized() or not configured():
+    if not initialized():
         return
     with importer_lock() as acquired:
         if acquired:
-            refresh_phone(client_factory)
+            try:
+                config = get_connection()
+            except ValueError:
+                return
+            if config.configured:
+                refresh_phone(client_factory, config)
 
 
 def sync_once(client_factory=ModemClient):
@@ -104,7 +110,14 @@ def sync_once(client_factory=ModemClient):
             return
         state, _ = SyncStatus.objects.get_or_create(pk=1)
         state.attempted_at = timezone.now()
-        if not initialized() or not settings.LTE_HOST or not settings.LTE_USERNAME:
+        try:
+            config = get_connection()
+        except ValueError:
+            state.state = "error"
+            state.detail = "Device connection settings are invalid."
+            state.save()
+            return
+        if not initialized() or not config.configured:
             state.state = "waiting"
             state.detail = (
                 "Configure the LTE SSH connection."
@@ -116,19 +129,11 @@ def sync_once(client_factory=ModemClient):
         state.state, state.detail = "syncing", "Reading the modem."
         state.save()
         source = hashlib.sha256(
-            f"{settings.LTE_HOST}:{settings.LTE_PORT}:{settings.LTE_DEVICE}:{settings.LTE_STORAGE}".encode()
+            f"{config.host}:{config.port}:{config.device}:{config.storage}".encode()
         ).hexdigest()
         rejected = 0
         try:
-            with client_factory(
-                host=settings.LTE_HOST,
-                port=settings.LTE_PORT,
-                username=settings.LTE_USERNAME,
-                key_filename=settings.LTE_KEY_FILE,
-                known_hosts=settings.LTE_KNOWN_HOSTS,
-                device=settings.LTE_DEVICE,
-                storage=settings.LTE_STORAGE,
-            ) as client:
+            with client_factory(**config.client_kwargs) as client:
                 pdus = client.list_pdus()
                 present = [fingerprint(source, pdu) for pdu in pdus.values()]
                 Receipt.objects.filter(source=source, cleared_at__isnull=True).exclude(

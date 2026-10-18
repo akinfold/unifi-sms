@@ -14,7 +14,8 @@ from django.utils import timezone
 from modem.tests.test_pdu import make_pdu, septets
 from .forwarding import forward_pending, forwarding_lock
 from .models import ForwardDelivery, Installation, Message, Receipt, SMTPSettings
-from .smtp_config import SMTP_ENV_FIELDS, smtp_values
+from .smtp_config import smtp_values
+from .test_helpers import seed_connection
 from .sync import archive, sync_once
 
 PDU = make_pdu(septets([72, 105]), udl=2)
@@ -23,7 +24,7 @@ PDU = make_pdu(septets([72, 105]), udl=2)
 class ForwardingTests(TransactionTestCase):
     def setUp(self):
         environment = {
-            key: value for key, value in os.environ.items() if key not in SMTP_ENV_FIELDS
+            key: value for key, value in os.environ.items() if not key.startswith("SMTP_")
         }
         self.environment = patch.dict(os.environ, environment, clear=True)
         self.environment.start()
@@ -147,11 +148,13 @@ class ForwardingTests(TransactionTestCase):
     @override_settings(LTE_HOST="modem.example.invalid", LTE_USERNAME="sms")
     def test_smtp_failure_does_not_prevent_modem_cleanup(self):
         Installation.objects.create(completed=True)
+        seed_connection()
         modem = MagicMock()
         modem.__enter__.return_value = modem
         modem.list_pdus.return_value = {0: PDU}
         modem.read_pdu.return_value = PDU
-        sync_once(MagicMock(return_value=modem))
+        with patch.dict(os.environ, {"LTE_HOST": "modem.example.invalid"}):
+            sync_once(MagicMock(return_value=modem))
         self.connection.send_messages.side_effect = OSError("offline")
         forward_pending()
         modem.delete.assert_called_once_with(0)
@@ -159,16 +162,13 @@ class ForwardingTests(TransactionTestCase):
         self.assertEqual(Message.objects.get().text, "Hi")
         self.assertIsNone(ForwardDelivery.objects.get().sent_at)
 
-    def test_invalid_environment_preserves_queue_and_never_uses_database_fallback(self):
+    def test_legacy_environment_does_not_override_saved_smtp_settings(self):
         archive("test", 0, PDU)
         with patch.dict(os.environ, {"SMTP_ENABLED": "1", "SMTP_HOST": ""}):
             values, keys = smtp_values()
-            self.assertEqual(values["password"], "")
-            self.assertIn("SMTP_HOST", keys)
+            self.assertEqual(values["password"], "synthetic-password")
+            self.assertEqual(keys, ())
             forward_pending()
-        self.backend.assert_not_called()
-        self.assertIsNone(ForwardDelivery.objects.get().sent_at)
-        forward_pending()
         self.assertIsNotNone(ForwardDelivery.objects.get().sent_at)
 
     def test_disabled_queue_pauses_and_deleting_sms_removes_pending_delivery(self):

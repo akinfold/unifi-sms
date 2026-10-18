@@ -1,0 +1,131 @@
+{% extends 'inbox/base.html' %}{% load static %}
+{% block title %}Device connection · UniFi SMS{% endblock %}
+{% block extra_styles %}<link rel="stylesheet" href="{% static 'inbox/settings.css' %}">{% endblock %}
+{% block content %}
+<main class="workspace settings-workspace device-wizard">
+  {% include 'inbox/settings_tabs.html' %}
+  <section class="page-heading"><div><div class="eyebrow">SETTINGS</div><h1>Device connection</h1><p class="muted">Connect your device to import SMS and update device information.</p></div></section>
+
+  {% if messages %}{% for message in messages %}<div class="settings-alert success" role="status">{{ message }}</div>{% endfor %}{% endif %}
+  {% if error %}<div class="settings-alert form-errors" role="alert">{{ error }}</div>{% endif %}
+  {% if form.errors %}<div class="settings-alert form-errors" role="alert"><strong>Check the highlighted fields.</strong> {{ form.non_field_errors }}</div>{% endif %}
+
+  {% if active and step != 'summary' %}<div class="settings-alert notice" role="status">Your current connection to <strong>{{ active.address|default:active.host }}</strong> remains active while you set up this connection.</div>{% endif %}
+
+  {% if step != 'summary' %}
+  <nav class="wizard-progress" aria-label="Connection setup progress">
+    <ol>
+      <li {% if step == 'address' %}aria-current="step"{% endif %}>1. Address</li>
+      <li {% if step == 'access' %}aria-current="step"{% endif %}>2. Access</li>
+      <li {% if step == 'verify' %}aria-current="step"{% endif %}>3. Verify</li>
+      <li {% if step == 'trust' %}aria-current="step"{% endif %}>4. Trust</li>
+    </ol>
+  </nav>
+  {% endif %}
+
+  <section class="settings-card wizard-card" aria-labelledby="wizard-title">
+    {% if step == 'summary' %}
+      {% if active.trusted_at %}
+        <div class="wizard-heading"><div><div class="eyebrow">CONNECTED DEVICE</div><h2 id="wizard-title">{{ active.name|default:active.host }}</h2><p class="section-help">The trusted device used for SMS imports.</p></div><span class="wizard-badge">Trusted</span></div>
+        <dl class="device-facts">
+          <div><dt>Address</dt><dd>{{ active.address|default:active.host }}{% if active.port %}:{{ active.port }}{% endif %}</dd></div>
+          <div><dt>Model</dt><dd>{{ active.model|default:'Not available' }}</dd></div>
+          <div><dt>SSH username</dt><dd>{{ active.username }}</dd></div>
+          <div><dt>Sign-in method</dt><dd>{% if active.auth_method == 'password' %}Password{% else %}SSH key{% endif %}</dd></div>
+          <div class="device-facts-wide"><dt>Trusted SSH fingerprint</dt><dd class="fingerprint">{{ active.fingerprint|default:'Not available' }}</dd></div>
+        </dl>
+        <form method="post" action="{% url 'device-settings' %}">{% csrf_token %}<button class="primary wizard-primary" type="submit" name="action" value="start">Change device connection</button></form>
+      {% else %}
+        <div class="wizard-heading"><div><div class="eyebrow">GET STARTED</div><h2 id="wizard-title">Connect a device</h2><p class="section-help">Find the device, add SSH access, check its identity, then approve it for SMS imports.</p></div></div>
+        <form method="post" action="{% url 'device-settings' %}">{% csrf_token %}<button class="primary wizard-primary" type="submit" name="action" value="start">Set up connection</button></form>
+      {% endif %}
+
+    {% elif step == 'address' %}
+      <div class="wizard-heading"><div><div class="eyebrow">STEP 1 OF 4</div><h2 id="wizard-title">Where is the device?</h2><p class="section-help">Enter its IP address or hostname, or search your local network. DNS names are hints; the connection check verifies the device model.</p></div></div>
+      <form method="post" action="{% url 'device-settings' %}" id="device-address-form" data-discovery-url="{% url 'device-discovery' %}" autocomplete="off">
+        {% csrf_token %}
+        <div class="setting-field wizard-address-field">{{ form.host.label_tag }}{{ form.host }}<small id="host-help">Use an address you can reach from this server.</small><div id="host-errors">{% for field_error in form.host.errors %}<span class="field-error">{{ field_error }}</span>{% endfor %}</div></div>
+        <div class="wizard-discovery">
+          <button class="wizard-secondary" type="button" id="discover-devices">Search local network</button>
+          <p id="discovery-status" class="wizard-discovery-status" role="status" aria-live="polite"></p>
+          <div id="discovery-progress" class="wizard-discovery-progress" hidden>
+            <div class="wizard-discovery-track" role="progressbar" aria-label="Searching local network" aria-describedby="discovery-status"><span class="wizard-discovery-pulse" aria-hidden="true"></span></div>
+            <span id="discovery-countdown" class="wizard-discovery-countdown">Time remaining: 1:15</span>
+          </div>
+          <div class="wizard-network-options"><label for="discovery-network">LAN subnet (optional)</label><input id="discovery-network" type="text" inputmode="decimal" placeholder="10.20.30.0/24" aria-describedby="network-help"><small id="network-help">Leave blank for automatic search, or enter a subnet such as 10.20.30.0/24. SSH access must be enabled on the device. DNS names can suggest a model but do not confirm it.</small></div>
+          <p id="discovery-networks" class="wizard-discovery-status"></p>
+          <div id="discovery-results" class="wizard-results" aria-label="Discovered devices"></div>
+        </div>
+        <div class="wizard-actions"><button class="primary wizard-primary" type="submit" name="action" value="choose-address">Continue</button><button class="wizard-quiet" type="submit" name="action" value="cancel" formnovalidate>Cancel</button></div>
+      </form>
+
+    {% elif step == 'access' %}
+      <div class="wizard-heading"><div><div class="eyebrow">STEP 2 OF 4</div><h2 id="wizard-title">Add SSH access</h2><p class="section-help">Use the device’s SSH account. Your web administrator account is separate.</p></div></div>
+      <form method="post" action="{% url 'device-settings' %}" id="device-access-form" autocomplete="off" novalidate>
+        {% csrf_token %}
+        <div class="settings-grid">
+          {% include 'inbox/device_field.html' with field=form.port help='Usually 22.' %}
+          <div class="setting-field">
+            {{ form.username.label_tag }}{{ form.username }}
+            <small id="username-help">In UniFi Network, open <strong>UniFi Devices → Device Updates and Settings</strong> (bottom-left), then expand <strong>Device SSH Settings</strong>. Copy the username from <strong>Device SSH Authentication</strong>. This may differ from your UniFi sign-in. <a href="https://help.ui.com/hc/en-us/articles/204909374-Connecting-to-UniFi-with-Debug-Tools-SSH" target="_blank" rel="noopener noreferrer">Official SSH guide (opens in a new tab)</a></small>
+            <div id="username-errors">{% for field_error in form.username.errors %}<span class="field-error">{{ field_error }}</span>{% endfor %}</div>
+          </div>
+          {% include 'inbox/device_field.html' with field=form.auth_method help='Choose a password or SSH key.' wide=True %}
+        </div>
+        <div class="auth-fields" data-auth-method="password">
+          <div class="password-status"><span class="status-dot {% if has_password %}is-saved{% endif %}"></span><strong>{% if has_password %}Password saved{% else %}No password saved{% endif %}</strong><span class="password-status-note">Saved passwords are never shown.</span></div>
+          {% include 'inbox/device_field.html' with field=form.password help='Leave blank to keep the saved password when using the same sign-in method.' %}
+        </div>
+        <div class="auth-fields" data-auth-method="private_key">
+          {% include 'inbox/device_field.html' with field=form.key_source help='Generate a key here or paste an existing private key.' %}
+          <div class="wizard-key-source" data-key-source="paste">
+            <div class="password-status"><span class="status-dot {% if has_private_key %}is-saved{% endif %}"></span><strong>{% if has_private_key %}Private key saved{% else %}No private key saved{% endif %}</strong><span class="password-status-note">Saved keys are never shown.</span></div>
+            {% include 'inbox/device_field.html' with field=form.private_key help='Paste an unencrypted private key. Leave blank to keep the saved key when using the same sign-in method.' %}
+          </div>
+          <div class="wizard-key-source" data-key-source="generate">
+            <div class="wizard-key-note">
+              <p>Generate a key for this app, then add its public key to your controller. The private key stays encrypted on this server.</p>
+              <div class="wizard-key-actions">
+                <button class="wizard-secondary" type="button" id="generate-ssh-key"{% if draft.key_source == 'generate' and draft.public_key %} disabled{% endif %}>{% if draft.key_source == 'generate' and draft.public_key %}SSH key generated{% else %}Generate SSH key{% endif %}</button>
+                <span id="key-generation-status" role="status" aria-live="polite">{% if draft.key_source == 'generate' and draft.public_key %}Your saved key is ready. Add the public key to your controller below.{% endif %}</span>
+              </div>
+            </div>
+            <div id="generated-key-details"{% if draft.key_source != 'generate' or not draft.public_key %} hidden{% endif %}>
+              {% include 'inbox/device_public_key.html' %}
+            </div>
+          </div>
+        </div>
+        <div class="wizard-actions"><button class="primary wizard-primary" type="submit" name="action" value="save-access">Continue</button><button class="wizard-quiet" type="submit" name="action" value="change-address" formnovalidate>Change address</button><button class="wizard-quiet" type="submit" name="action" value="cancel" formnovalidate>Cancel</button></div>
+      </form>
+
+    {% elif step == 'verify' %}
+      <div class="wizard-heading"><div><div class="eyebrow">STEP 3 OF 4</div><h2 id="wizard-title">Check the connection</h2><p class="section-help">The app will read the device identity. SMS imports begin only after you approve that identity.</p></div></div>
+      <dl class="device-facts">
+        <div><dt>Address</dt><dd>{{ draft.host }}:{{ draft.port }}</dd></div>
+        <div><dt>SSH username</dt><dd>{{ draft.username }}</dd></div>
+        <div><dt>Sign-in method</dt><dd>{% if draft.auth_method == 'password' %}Password{% else %}SSH key{% endif %}</dd></div>
+      </dl>
+      {% if draft.public_key and draft.key_source == 'generate' %}
+        {% include 'inbox/device_public_key.html' %}
+      {% endif %}
+      <form method="post" action="{% url 'device-settings' %}">{% csrf_token %}<div class="wizard-actions"><button class="primary wizard-primary" type="submit" name="action" value="check">Check connection</button><button class="wizard-quiet" type="submit" name="action" value="edit-access">Edit access</button><button class="wizard-quiet" type="submit" name="action" value="change-address">Change address</button><button class="wizard-quiet" type="submit" name="action" value="cancel">Cancel</button></div></form>
+
+    {% elif step == 'trust' %}
+      <div class="wizard-heading"><div><div class="eyebrow">STEP 4 OF 4</div><h2 id="wizard-title">Confirm this device</h2><p class="section-help">Compare this identity with the device in a trusted administration console. Approve it only when the address and SSH fingerprint match the device you intend to connect.</p></div></div>
+      <dl class="device-facts">
+        <div><dt>Address</dt><dd>{{ probe.address|default:'Not available' }}</dd></div>
+        <div><dt>Model</dt><dd>{{ probe.model|default:'Not available' }}</dd></div>
+        <div><dt>Name</dt><dd>{{ probe.name|default:'Not available' }}</dd></div>
+        <div><dt>Key type</dt><dd>{{ probe.key_type|default:'Not available' }}</dd></div>
+        <div class="device-facts-wide"><dt>SSH fingerprint</dt><dd class="fingerprint">{{ probe.fingerprint|default:'Not available' }}</dd></div>
+        <div class="device-facts-wide"><dt>Phone numbers</dt><dd>{% for number in probe.numbers %}<span class="wizard-phone">{{ number }}</span>{% empty %}Not available{% endfor %}</dd></div>
+      </dl>
+      {% if active.host == draft.host and active.port == draft.port and active.fingerprint and active.fingerprint != probe.fingerprint %}<div class="settings-alert form-errors" role="alert"><strong>The device key has changed.</strong><p>Previously trusted: <code>{{ active.fingerprint }}</code></p><p>Proposed key: <code>{{ probe.fingerprint }}</code></p><p>Confirm this change with your device administrator before trusting it.</p></div>{% endif %}
+      <div class="settings-alert notice" role="note">This is an identity reported by a connection that has not been trusted yet. Verify the fingerprint independently with your device administrator before approving it.</div>
+      <form method="post" action="{% url 'device-settings' %}">{% csrf_token %}<input type="hidden" name="probe_id" value="{{ probe_id }}"><div class="wizard-actions"><button class="primary wizard-primary" type="submit" name="action" value="trust">Trust device and start imports</button><button class="wizard-quiet" type="submit" name="action" value="edit-access">Edit access</button><button class="wizard-quiet" type="submit" name="action" value="cancel">Reject and cancel</button></div></form>
+    {% endif %}
+  </section>
+  <footer class="footer"><span>UniFi SMS · Administrator settings</span></footer>
+</main>
+{% endblock %}
+{% block scripts %}<script src="{% static 'inbox/device_settings.js' %}" defer></script>{% endblock %}

@@ -1,4 +1,5 @@
 import json
+import os
 import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -11,6 +12,7 @@ from django.utils import timezone
 from modem.client import ModemError
 from modem.tests.test_pdu import make_pdu, septets
 from .models import Installation, Message, Receipt, SyncStatus
+from .test_helpers import seed_connection
 from .sync import archive, sync_once
 
 PASSWORD = "Example-test-password-94!"
@@ -33,7 +35,7 @@ class AccessTests(TestCase):
         page = self.client.get("/setup/")
         self.assertNotContains(page, "setup_token")
         self.assertContains(page, "at least 8 characters")
-        self.assertRedirects(self.client.post("/setup/", self.setup_data("R8!k2pZx")), "/")
+        self.assertRedirects(self.client.post("/setup/", self.setup_data("R8!k2pZx")), "/", target_status_code=302)
         self.assertTrue(User.objects.get().check_password("R8!k2pZx"))
         self.assertTrue(User.objects.get().is_superuser)
         self.assertTrue(Installation.objects.get(pk=1).completed)
@@ -62,7 +64,7 @@ class AccessTests(TestCase):
     def test_login_and_logout(self):
         User.objects.create_superuser("administrator", password=PASSWORD)
         self.assertRedirects(
-            self.client.post("/login/", {"username": "administrator", "password": PASSWORD}), "/"
+            self.client.post("/login/", {"username": "administrator", "password": PASSWORD}), "/", target_status_code=302
         )
         self.assertEqual(self.client.get("/api/messages/").status_code, 200)
         self.assertEqual(self.client.get("/logout/").status_code, 405)
@@ -130,11 +132,15 @@ class AccessTests(TestCase):
 @override_settings(LTE_HOST="modem.example.invalid", LTE_USERNAME="sms")
 class SyncTests(TransactionTestCase):
     def setUp(self):
+        self.env = patch.dict(os.environ, {"LTE_HOST": "modem.example.invalid"})
+        self.env.start()
+        self.addCleanup(self.env.stop)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.settings_override = override_settings(DATA_DIR=Path(self.temp.name))
         self.settings_override.enable()
         self.addCleanup(self.settings_override.disable)
+        seed_connection()
         Installation.objects.create(pk=1, completed=True)
         self.modem = MagicMock()
         self.modem.__enter__.return_value = self.modem

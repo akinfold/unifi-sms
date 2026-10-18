@@ -3,17 +3,16 @@
 {% block extra_styles %}<link rel="stylesheet" href="{% static 'inbox/settings.css' %}">{% endblock %}
 {% block content %}
 <main class="workspace settings-workspace">
-  <nav class="settings-nav" aria-label="Settings navigation"><a href="{% url 'home' %}">← Back to inbox</a><span>Email forwarding</span></nav>
+  {% include 'inbox/settings_tabs.html' %}
   <section class="page-heading"><div><div class="eyebrow">SETTINGS</div><h1>Email forwarding</h1><p class="muted">Receive new SMS messages by email. Enter your provider’s SMTP settings below.</p></div></section>
   {% if messages %}<div class="settings-alert success" role="status">{% for message in messages %}{{ message }}{% endfor %}</div>{% endif %}
-  {% if env_managed %}<div class="settings-alert notice" role="note"><strong>Configured by environment variables</strong><p>{{ env_notice }}</p><div class="env-keys">Managed variables: {% for key in env_keys %}<code>{{ key }}</code>{% if not forloop.last %}, {% endif %}{% endfor %}</div></div>{% endif %}
   <section class="settings-card">
     <form method="post" autocomplete="off" novalidate id="smtp-settings">
       {% csrf_token %}
-      <input type="hidden" name="password_action" id="id_password_action" value="{{ password_action }}" {% if env_managed %}disabled{% endif %}>
-      {% if form.errors %}<div class="settings-alert form-errors" role="alert"><strong>{% if env_managed %}Check your SMTP environment variables.{% else %}Settings were not saved.{% endif %}</strong> Check the highlighted fields below.{{ form.non_field_errors }}{{ form.password_action.errors }}</div>{% endif %}
-      <div class="setting-toggle"><label for="id_enabled"><input type="checkbox" name="enabled" id="id_enabled" value="on" {% if enabled_checked %}checked{% endif %} {% if env_managed %}disabled{% endif %}><span><strong>Enable email forwarding</strong><small>When enabled, new SMS messages are forwarded after they reach your inbox. Existing messages are not sent.</small></span></label>{% for error in form.enabled.errors %}<span class="field-error">{{ error }}</span>{% endfor %}</div>
-      <fieldset class="settings-section" {% if env_managed %}disabled{% endif %}>
+      <input type="hidden" name="password_action" id="id_password_action" value="{{ password_action }}">
+      {% if form.errors %}<div class="settings-alert form-errors" role="alert"><strong>Settings were not saved.</strong> Check the highlighted fields below.{{ form.non_field_errors }}{{ form.password_action.errors }}</div>{% endif %}
+      <div class="setting-toggle"><label for="id_enabled"><input type="checkbox" name="enabled" id="id_enabled" value="on" {% if enabled_checked %}checked{% endif %}><span><strong>Enable email forwarding</strong><small>When enabled, new SMS messages are forwarded after they reach your inbox. Existing messages are not sent.</small></span></label>{% for error in form.enabled.errors %}<span class="field-error">{{ error }}</span>{% endfor %}</div>
+      <fieldset class="settings-section">
         <legend>Mail server</legend>
         <p class="section-help">Use the host, port and encryption method supplied by your email provider.</p>
         <div class="settings-grid server-grid">
@@ -22,43 +21,40 @@
           <div class="setting-field">{{ form.security.label_tag }}{{ form.security }}<small id="security-help">Usually STARTTLS on 587, SSL/TLS on 465.</small>{% for error in form.security.errors %}<span class="field-error">{{ error }}</span>{% endfor %}</div>
         </div>
       </fieldset>
-      <fieldset class="settings-section" {% if env_managed %}disabled{% endif %}>
+      <fieldset class="settings-section">
         <legend>Authentication</legend>
         <p class="section-help">Use your provider’s SMTP credentials. Leave both fields empty only if the server requires no authentication.</p>
         <div id="credentials-fields" class="settings-grid" {% if password_action == 'remove' %}hidden{% endif %}>
           <div class="setting-field">{{ form.username.label_tag }}{{ form.username }}<small id="username-help">Your SMTP username or API key ID.</small>{% for error in form.username.errors %}<span class="field-error">{{ error }}</span>{% endfor %}</div>
           <div class="setting-field password-field">
-            {% if has_password or env_managed %}<span class="field-label">Password</span>{% else %}{{ form.password.label_tag }}{% endif %}
-            {% if env_managed %}
-              <div class="password-status"><span class="status-dot {% if has_password %}is-saved{% endif %}"></span><strong>{% if has_password %}Provided by environment{% else %}Not set in environment{% endif %}</strong></div>
-              <small id="password-help">Managed by the container’s SMTP_PASSWORD variable.</small>
-            {% elif has_password %}
+            {% if has_password %}<span class="field-label">Password</span>{% else %}{{ form.password.label_tag }}{% endif %}
+            {% if has_password %}
               <div class="password-status"><span class="status-dot is-saved"></span><strong>Password saved</strong><span class="password-status-note">Hidden for privacy</span></div>
               <details id="password-editor" {% if password_action == 'replace' or form.password.errors %}open{% endif %}>
                 <summary>Replace password</summary>
                 <div class="password-input-wrap">{{ form.password.label_tag }}{{ form.password }}<small id="password-help">Enter a new password to replace the saved one when you save. Otherwise, your saved password is kept.</small><button type="button" id="cancel-password" class="text-action" hidden>Cancel replacement</button></div>
               </details>
             {% else %}
-              <div class="password-status"><span class="status-dot"></span><strong>No password saved</strong></div>
               {{ form.password }}<small id="password-help">Enter your SMTP password or secret API key.</small>
+              <div class="password-status"><span class="status-dot"></span><strong>No password saved</strong></div>
             {% endif %}
             {% if password_reentry and password_action != 'remove' %}<small class="field-error">Enter the new password again before saving; it is not retained after a validation error.</small>{% endif %}
             {% for error in form.password.errors %}<span class="field-error">{{ error }}</span>{% endfor %}
           </div>
         </div>
-        {% if not env_managed %}
           {% if has_credentials %}<div class="credential-actions" id="credential-actions" {% if password_action == 'remove' %}hidden{% endif %}><button type="button" id="remove-credentials" class="text-action danger" hidden>Remove login details</button><span id="remove-help" hidden>For servers that do not require authentication.</span></div>{% endif %}
           <div id="credentials-removal" class="settings-alert notice" role="status" {% if password_action != 'remove' %}hidden{% endif %}><strong>Username and password will be removed when you save.</strong><p>The server must accept mail without authentication. Forwarding stays enabled unless you turn it off above.</p><button type="button" id="undo-removal" class="text-action" hidden>Undo removal</button></div>
-        {% endif %}
       </fieldset>
-      <fieldset class="settings-section delivery-section" {% if env_managed %}disabled{% endif %}>
+      <fieldset class="settings-section delivery-section">
         <legend>Delivery addresses</legend>
         <div class="settings-grid">
           <div class="setting-field">{{ form.from_email.label_tag }}{{ form.from_email }}<small id="from-help">An address your provider permits you to send from. Required when enabled.</small>{% for error in form.from_email.errors %}<span class="field-error">{{ error }}</span>{% endfor %}</div>
           <div class="setting-field">{{ form.recipients.label_tag }}{{ form.recipients }}<small id="recipients-help">Where to receive your SMS. Separate addresses with commas. At least one is required when enabled.</small>{% for error in form.recipients.errors %}<span class="field-error">{{ error }}</span>{% endfor %}</div>
         </div>
       </fieldset>
-      <div class="settings-actions"><button type="submit" class="primary" {% if env_managed %}disabled{% endif %}>Save settings</button><p class="settings-help">{% if env_managed %}Edit the container environment to change these settings.{% else %}Changes apply after saving. Pending messages keep their existing recipients.{% endif %}</p></div>
+      <div class="settings-actions"><button type="submit" class="primary">Save settings</button><button type="button" id="send-test-email" class="test-email-button" hidden>Send test email</button><p class="settings-help">Changes apply after saving. Pending messages keep their existing recipients.</p></div>
+      <p class="test-email-help">Sends a test using the current form values to the configured recipients. A blank password keeps the saved password. This does not save settings and works while forwarding is disabled.</p>
+      <p id="test-email-status" class="test-email-status" role="status" aria-live="polite" aria-atomic="true" hidden></p>
     </form>
   </section>
   {% if delivery_summary %}<section class="delivery-summary"><strong>Delivery status</strong><span>{{ delivery_summary.pending }} pending</span>{% if delivery_summary.last_sent %}<span>Last sent {{ delivery_summary.last_sent|date:"Y-m-d H:i" }}</span>{% else %}<span>No email has been sent yet</span>{% endif %}{% if delivery_summary.last_error %}<span class="delivery-error">Latest delivery issue: {{ delivery_summary.last_error }}</span>{% endif %}</section>{% endif %}

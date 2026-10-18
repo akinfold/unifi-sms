@@ -1,0 +1,15 @@
+<div class="wizard-public-key">
+  <h3>Add the public key to UniFi Network</h3>
+  <ol class="wizard-key-instructions">
+    <li>Copy the public key below.</li>
+    <li>Open your controller’s <strong>UniFi Network</strong> application, then <strong>Settings → Devices → Device Updates and Settings → Device SSH Settings</strong>.</li>
+    <li>Enable <strong>Device SSH Authentication</strong> if needed. Under <strong>SSH Keys</strong>, select <strong>Add SSH Key</strong>, enter a name such as <strong>UniFi SMS</strong>, and paste the entire public key. Save it and apply the changes.</li>
+    <li>Wait for the settings to be applied to your LTE Pro. {% if step == 'access' %}Return here, select <strong>Continue</strong>, then <strong>Check connection</strong>.{% else %}Then select <strong>Check connection</strong> below.{% endif %}</li>
+  </ol>
+  <details class="wizard-key-legacy"><summary>Using an older controller?</summary><p>Open <strong>Settings → System → Advanced → Device Authentication → SSH Keys</strong> to add the public key.</p></details>
+  <p><a href="{{ key_help_url }}" target="_blank" rel="noopener noreferrer">Official UniFi guide to adding SSH keys</a></p>
+  <label for="generated-public-key">Public key — add this to the controller</label>
+  <textarea id="generated-public-key" readonly rows="4" spellcheck="false">{% if draft.key_source == 'generate' %}{{ draft.public_key }}{% endif %}</textarea>
+  <button class="wizard-secondary" type="button" id="copy-public-key" data-copy-target="generated-public-key">Copy public key</button>
+  <span id="copy-status" role="status" aria-live="polite"></span>
+</div>

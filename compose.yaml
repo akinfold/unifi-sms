@@ -12,7 +12,6 @@ services:
       DATA_DIR: /data
     volumes:
       - sms-data:/data
-      - ./secrets:/run/secrets:ro
     security_opt:
       - no-new-privileges:true
     cap_drop:

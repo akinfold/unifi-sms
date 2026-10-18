@@ -16,7 +16,7 @@
 {% if user.is_authenticated %}
 <nav class="sidebar" aria-label="Main navigation">
   <a href="{% url 'home' %}" class="nav-item {% if request.resolver_match.url_name == 'home' %}active{% endif %}" {% if request.resolver_match.url_name == 'home' %}aria-current="page"{% endif %}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 5-2 9v6h20v-6l-2-9H4Z"/><path d="M2 14h6l2 3h4l2-3h6M7 9h10"/></svg><span>Inbox</span></a>
-  <a href="{% url 'smtp-settings' %}" class="nav-item {% if request.resolver_match.url_name == 'smtp-settings' %}active{% endif %}" {% if request.resolver_match.url_name == 'smtp-settings' %}aria-current="page"{% endif %}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m10 3-1 3-3 1-3 3 2 2-2 2 3 3 3 1 1 3h4l1-3 3-1 3-3-2-2 2-2-3-3-3-1-1-3h-4Z"/><circle cx="12" cy="12" r="3"/></svg><span>Settings</span></a>
+  <a href="{% url 'device-settings' %}" class="nav-item {% if request.resolver_match.url_name == 'smtp-settings' or request.resolver_match.url_name == 'device-settings' %}active{% endif %}" {% if request.resolver_match.url_name == 'smtp-settings' or request.resolver_match.url_name == 'device-settings' %}aria-current="page"{% endif %}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m10 3-1 3-3 1-3 3 2 2-2 2 3 3 3 1 1 3h4l1-3 3-1 3-3-2-2 2-2-3-3-3-1-1-3h-4Z"/><circle cx="12" cy="12" r="3"/></svg><span>Settings</span></a>
   <span class="sidebar-caption">SMS</span>
 </nav>
 {% endif %}

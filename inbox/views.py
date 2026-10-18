@@ -93,6 +93,8 @@ def home(request):
         return redirect("setup")
     if not request.user.is_authenticated or not request.user.is_staff or not request.user.is_active:
         return redirect("login")
+    if not configured():
+        return redirect("device-settings")
     return render(request, "inbox/home.html")
 
 

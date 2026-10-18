@@ -90,11 +90,4 @@ SESSION_COOKIE_SECURE = CSRF_COOKIE_SECURE = SECURE_SSL_REDIRECT
 SECURE_HSTS_SECONDS = 31536000 if SECURE_SSL_REDIRECT else 0
 if os.environ.get("TRUST_PROXY", "0") == "1":
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
-LTE_HOST = os.environ.get("LTE_HOST", "")
-LTE_PORT = int(os.environ.get("LTE_PORT", "22"))
-LTE_USERNAME = os.environ.get("LTE_USERNAME", "")
-LTE_KEY_FILE = os.environ.get("LTE_KEY_FILE", "/run/secrets/lte_key")
-LTE_KNOWN_HOSTS = os.environ.get("LTE_KNOWN_HOSTS", "/run/secrets/known_hosts")
-LTE_DEVICE = os.environ.get("LTE_DEVICE", "/dev/ttyUSB2")
-LTE_STORAGE = os.environ.get("LTE_STORAGE", "SM")
-POLL_INTERVAL = max(10, int(os.environ.get("POLL_INTERVAL", "60")))
+POLL_INTERVAL = 60

@@ -58,9 +58,9 @@ class SMTPSettingsForm(forms.Form):
         widget=forms.HiddenInput,
     )
 
-    def __init__(self, *args, stored_password="", env_managed=False, **kwargs):
+    def __init__(self, *args, stored_password="", test_email=False, **kwargs):
+        self.test_email = test_email
         self.stored_password = stored_password or ""
-        self.env_managed = env_managed
         super().__init__(*args, **kwargs)
         for name, description in {
             "host": "host-help", "port": "port-help", "security": "security-help",
@@ -70,9 +70,6 @@ class SMTPSettingsForm(forms.Form):
             self.fields[name].widget.attrs["aria-describedby"] = description
         if self.stored_password:
             self.fields["password"].label = "New password"
-        if env_managed:
-            for field in self.fields.values():
-                field.disabled = True
 
     def clean_host(self):
         raw = self.cleaned_data.get("host", "")
@@ -122,15 +119,14 @@ class SMTPSettingsForm(forms.Form):
 
     def clean(self):
         cleaned = super().clean()
-        if self.env_managed:
-            return cleaned
         enabled = cleaned.get("enabled", False)
         username = cleaned.get("username", "")
         password = cleaned.get("password", "")
-        if enabled:
+        if enabled or self.test_email:
             for key, label in (("host", "SMTP host"), ("from_email", "From address"), ("recipients", "At least one recipient")):
                 if not cleaned.get(key):
-                    self.add_error(key, f"{label} is required when email forwarding is enabled.")
+                    reason = "to send a test email" if self.test_email else "when email forwarding is enabled"
+                    self.add_error(key, f"{label} is required {reason}.")
         action = cleaned.pop("password_action", "keep")
         if action == "remove":
             username = cleaned["username"] = ""
@@ -139,7 +135,7 @@ class SMTPSettingsForm(forms.Form):
             effective_password = password or self.stored_password
             if action == "replace" and not password:
                 self.add_error("password", "Enter the new password, or cancel the replacement.")
-        if enabled and (username or effective_password) and bool(username) != bool(effective_password):
+        if (enabled or self.test_email) and (username or effective_password) and bool(username) != bool(effective_password):
             self.add_error("username", "Enter both a username and password, or leave both blank.")
             self.add_error("password", "Enter both a username and password, or leave both blank.")
         cleaned["password"] = effective_password
