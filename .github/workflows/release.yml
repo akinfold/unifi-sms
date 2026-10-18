@@ -115,6 +115,39 @@ jobs:
         with:
           ref: ${{ needs.prepare.outputs.sha }}
           persist-credentials: false
+      - name: Read the release description from README
+        id: description
+        run: |
+          python - <<'PYTHON'
+          import csv
+          import html
+          import io
+          import os
+          import re
+          import subprocess
+          from pathlib import Path
+
+          readme = subprocess.check_output(['git', 'show', f"{os.environ['RELEASE_SHA']}:README.md"], text=True)
+          readme = re.sub(r'<!--.*?-->', '', readme, flags=re.S)
+          paragraphs = re.split(r'\n\s*\n', readme.strip())
+          paragraph = next((part for part in paragraphs if not part.lstrip().startswith('#')), '')
+          description = re.sub(r'!?\[([^\]]*)\]\([^)]*\)', r'\1', paragraph)
+          description = re.sub(r'<[^>]+>', '', description)
+          description = re.sub(r'[`*_]', '', description)
+          description = ' '.join(html.unescape(description).split())
+          if not description or any(ord(char) < 32 or ord(char) == 127 for char in description):
+              raise SystemExit('README.md must contain a nonempty introductory paragraph without control characters.')
+          if len(description) > 512:
+              description = description[:509].rsplit(' ', 1)[0].rstrip() + '...'
+          with Path(os.environ['GITHUB_OUTPUT']).open('a', encoding='utf-8') as output:
+              output.write(f'description={description}\n')
+              # Docker action list inputs use CSV parsing, including for descriptions with commas.
+              for name, key in [('label', 'org.opencontainers.image.description'),
+                                ('annotation', 'index:org.opencontainers.image.description')]:
+                  entry = io.StringIO()
+                  csv.writer(entry, lineterminator='').writerow([f'{key}={description}'])
+                  output.write(f'{name}={entry.getvalue()}\n')
+          PYTHON
       - name: Set up QEMU
         uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
         with:
@@ -172,35 +205,43 @@ jobs:
           push: ${{ env.PUBLISH_IMAGES == 'true' }}
           outputs: ${{ env.PUBLISH_IMAGES != 'true' && format('type=oci,dest={0}/unifi-sms-release.tar', runner.temp) || '' }}
           tags: ${{ steps.metadata.outputs.tags }}
-          labels: ${{ steps.metadata.outputs.labels }}
+          labels: |
+            ${{ steps.metadata.outputs.labels }}
+            ${{ steps.description.outputs.label }}
+          annotations: ${{ steps.description.outputs.annotation }}
           cache-from: type=gha,scope=release
           cache-to: type=gha,mode=max,scope=release
           provenance: mode=min
-      - name: Verify dry-run platforms
+      - name: Verify dry-run platforms and description
         if: env.PUBLISH_IMAGES != 'true'
+        env:
+          IMAGE_DESCRIPTION: ${{ steps.description.outputs.description }}
         run: |
           python - <<'PYTHON'
           import json
           import os
           import tarfile
 
-          platforms = set()
+          required_platforms = {('linux', 'amd64'), ('linux', 'arm64')}
           with tarfile.open(os.path.join(os.environ['RUNNER_TEMP'], 'unifi-sms-release.tar')) as archive:
               def visit(name):
                   index = json.load(archive.extractfile(name))
-                  for manifest in index.get('manifests', []):
-                      platform = manifest.get('platform', {})
-                      platforms.add((platform.get('os'), platform.get('architecture')))
-                      if 'index' in manifest['mediaType'] or 'manifest.list' in manifest['mediaType']:
-                          visit('blobs/' + manifest['digest'].replace(':', '/'))
-              visit('index.json')
-          assert {('linux', 'amd64'), ('linux', 'arm64')} <= platforms, platforms
-          print('Verified AMD64 and ARM64 images; no registry credentials were used and no images were pushed.')
+                  manifests = index.get('manifests', [])
+                  platforms = {(item.get('platform', {}).get('os'), item.get('platform', {}).get('architecture')) for item in manifests}
+                  if required_platforms <= platforms:
+                      description = index.get('annotations', {}).get('org.opencontainers.image.description')
+                      assert description == os.environ['IMAGE_DESCRIPTION'], 'Image index description differs from README'
+                      return True
+                  return any(visit('blobs/' + item['digest'].replace(':', '/')) for item in manifests
+                             if 'index' in item['mediaType'] or 'manifest.list' in item['mediaType'])
+              assert visit('index.json'), 'AMD64 and ARM64 image index not found'
+          print('Verified AMD64, ARM64, and the README description; no registry credentials were used and no images were pushed.')
           PYTHON
       - name: Verify published version manifests
         if: env.PUBLISH_IMAGES == 'true'
         env:
           IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+          IMAGE_DESCRIPTION: ${{ steps.description.outputs.description }}
         run: |
           for image in "$GHCR_IMAGE" "$DOCKERHUB_IMAGE"; do
             docker buildx imagetools inspect "$image:$IMAGE_VERSION" --format '{{json .Manifest}}' > "$RUNNER_TEMP/unifi-sms-manifest.json"
@@ -213,6 +254,8 @@ jobs:
           assert manifest['digest'] == os.environ['IMAGE_DIGEST'], 'Registry digest differs from the build result'
           platforms = {(item.get('platform', {}).get('os'), item.get('platform', {}).get('architecture')) for item in manifest['manifests']}
           assert {('linux', 'amd64'), ('linux', 'arm64')} <= platforms, platforms
+          description = manifest.get('annotations', {}).get('org.opencontainers.image.description')
+          assert description == os.environ['IMAGE_DESCRIPTION'], 'Published index description differs from README'
           PYTHON
           done
       - name: Check release tag and latest status

@@ -32,11 +32,19 @@ If the package already exists from a manual push, open its **Package settings �
 
 Check package visibility separately: a public source repository does not make every existing container package public. Set a new GHCR package to **Public** once if anonymous installation is required. The workflow does not change registry visibility.
 
+## Update the GHCR description
+
+Each release build takes the first introductory paragraph after the title in the tagged commit's `README.md`, removes inline Markdown, and joins the text into one line. Descriptions longer than 512 characters are shortened with `...` to fit [GHCR's description limit](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry#labelling-container-images).
+
+The release workflow adds this text to the image label and the multi-platform index annotation `org.opencontainers.image.description`. GHCR displays the index annotation on the package page. The same image metadata is published to both registries; this does not change Docker Hub's full description.
+
+No additional secret or registry setting is needed. README-only pushes do not change the GHCR description; the next image publication uses the README from its release commit. Rebuilding an older release uses that release's README.
+
 ## Update the Docker Hub description
 
 The [Update Docker Hub description workflow](../.github/workflows/dockerhub-description.yml) updates the repository's full description whenever `README.md` or that workflow changes on `main`. It uses the latest README from the default branch and converts relative Markdown links to GitHub URLs.
 
-This workflow uses the Docker Hub settings above and does not build or push images. README-only pushes and pull requests also skip the CI workflow, which includes a Docker build. Image releases do not update the description, so rebuilding an older release cannot overwrite it with an older README.
+This workflow uses the Docker Hub settings above and does not build or push images. README-only pushes and pull requests also skip the CI workflow, which includes a Docker build. Image releases do not update Docker Hub's full description, so rebuilding an older release cannot overwrite it with an older README.
 
 To update the description manually, open **Actions → Update Docker Hub description → Run workflow**, select `main`, and run it. Manual runs from other branches are skipped.
 
@@ -48,7 +56,7 @@ If an update fails, check that `DOCKERHUB_TOKEN` has **Read, Write, Delete** per
 2. Open **Releases → Draft a new release**, create a tag such as `v0.2.0` at the intended commit, and write the release notes. The commit must include this workflow for automatic publication.
 3. For a preview, use a tag such as `v0.2.0-rc.1` and select **Set as a pre-release**. The suffix and GitHub prerelease setting must agree. Build metadata suffixes such as `+build.1` are not supported as Docker tags.
 4. Select **Publish release**. Open **Actions → Publish release images** and wait for all jobs to pass.
-5. Check the run summary for image names, source commit, digest, and platforms. The workflow checks that both registries return the build's digest with AMD64 and ARM64 manifests.
+5. Check the run summary for image names, source commit, digest, and platforms. The workflow checks that both registries return the build's digest, AMD64 and ARM64 manifests, and the README description in the image index.
 
 For release `v0.2.0`, the workflow publishes `0.2.0` and `sha-FULL_COMMIT_SHA` to both registries. It updates `latest` only when GitHub identifies that release as the latest stable release. Prereleases receive their full version tag, such as `0.2.0-rc.1`, and never update `latest`. Rebuilding an older release also leaves `latest` unchanged.
 
@@ -56,7 +64,7 @@ Do not move a published release tag. A retry rebuilds the same source commit, bu
 
 ## Build without publishing, or retry a release
 
-Open **Actions → Publish release images → Run workflow** on the default branch. Enter an **existing published release tag** and leave **Push images to both registries** unchecked to run CI and a multi-platform build without registry logins or pushes. The build checks both platforms in a temporary OCI archive; the archive is discarded with the runner. This mode can validate the workflow before Docker Hub credentials are configured.
+Open **Actions → Publish release images → Run workflow** on the default branch. Enter an **existing published release tag** and leave **Push images to both registries** unchecked to run CI and a multi-platform build without registry logins or pushes. The build checks both platforms and the description annotation in a temporary OCI archive; the archive is discarded with the runner. This mode can validate the workflow before Docker Hub credentials are configured.
 
 To publish an existing release or retry a failed upload, run the same workflow with the checkbox selected. A manual run can publish a tag created before this workflow was added. Arbitrary branches, unpublished tags, and draft releases are rejected.
 
