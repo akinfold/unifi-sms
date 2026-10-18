@@ -15,7 +15,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  # Keep reusable CI calls separate from their callers and other releases.
+  group: ci-${{ github.workflow }}-${{ inputs.ref && github.run_id || github.ref }}
   cancel-in-progress: true
 
 jobs:
