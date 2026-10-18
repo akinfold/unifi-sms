@@ -180,7 +180,7 @@ For HTTPS, follow the [reverse-proxy instructions](docs/nas-maintenance.md#optio
 - [Backups, migration, upgrades, HTTPS, and troubleshooting](docs/nas-maintenance.md)
 - [Discovery, credentials, SMS cleanup, and email delivery behavior](docs/behavior.md)
 - [Source builds, local development, and validation](docs/development.md)
-- [Release publishing to GHCR and Docker Hub](docs/releases.md)
+- [Image publishing and Docker Hub description updates](docs/releases.md)
 
 ## Contributing and security
 
