@@ -27,10 +27,9 @@ To transfer an image without a registry, use `docker save -o unifi-sms.tar unifi
 
 The release image is `ghcr.io/akinfold/unifi-sms:0.1.0`, with support for Linux AMD64 and ARM64. The `latest` tag tracks the most recent published release. Use a version tag to keep upgrades explicit.
 
-Copy `compose.ghcr.yaml` to the destination server. For a private package, sign in with a GitHub personal access token (classic) that has `read:packages` permission and access to the package. Enter the token when Docker asks for a password:
+Copy `compose.ghcr.yaml` to the destination server. The image is public and can be pulled without a GitHub account or token:
 
 ```sh
-docker login ghcr.io -u YOUR_GITHUB_USERNAME
 docker compose -f compose.ghcr.yaml pull
 docker compose -f compose.ghcr.yaml up -d
 docker compose -f compose.ghcr.yaml ps
