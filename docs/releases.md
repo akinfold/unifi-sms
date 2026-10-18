@@ -9,7 +9,7 @@ Every release runs the existing CI checks against the exact tagged commit before
 ### Docker Hub
 
 1. Create a **public** Docker Hub repository named `unifi-sms` under your account or organization. Public visibility allows installation without a Docker Hub login.
-2. In [Docker account settings](https://app.docker.com/settings/personal-access-tokens), create a personal access token with repository **Read & Write** permission. Delete permission is not required. See [Docker's token instructions](https://docs.docker.com/security/access-tokens/personal-access-tokens/).
+2. In [Docker account settings](https://app.docker.com/settings/personal-access-tokens), create a personal access token with repository **Read, Write, Delete** permission. The description-update action requires this permission level; **Read & Write** is sufficient only for pushing images. See [Docker's token instructions](https://docs.docker.com/security/access-tokens/personal-access-tokens/) and the [action's token requirements](https://github.com/peter-evans/dockerhub-description#action-inputs).
 3. In the GitHub repository, open **Settings → Secrets and variables → Actions** and add:
 
    | Tab | Name | Value |
@@ -18,7 +18,9 @@ Every release runs the existing CI checks against the exact tagged commit before
    | Secrets | `DOCKERHUB_TOKEN` | The Docker Hub access token. |
    | Variables (optional) | `DOCKERHUB_IMAGE` | A complete lowercase `namespace/repository`, such as `example-org/unifi-sms`. Defaults to `DOCKERHUB_USERNAME/unifi-sms`. |
 
-For an organization repository, the token's account must have permission to push there. Set `DOCKERHUB_IMAGE` to the organization's repository while keeping the login account in `DOCKERHUB_USERNAME`. Store the token only as an Actions secret; do not add it to source files, Compose, `.env.example`, or workflow inputs.
+If you already configured a **Read & Write** token, replace the `DOCKERHUB_TOKEN` secret with a **Read, Write, Delete** token before the next publication. No additional Actions secret is needed.
+
+For an organization repository, the token's account must have **Admin** permission to update its description. Set `DOCKERHUB_IMAGE` to the organization's repository while keeping the login account in `DOCKERHUB_USERNAME`. Store the token only as an Actions secret; do not add it to source files, Compose, `.env.example`, or workflow inputs.
 
 If the required settings are missing, publication fails with a configuration error before logging in or pushing to either registry. Build-only runs do not require Docker Hub settings.
 
@@ -39,6 +41,10 @@ Check package visibility separately: a public source repository does not make ev
 5. Check the run summary for image names, source commit, digest, and platforms. The workflow checks that both registries return the build's digest with AMD64 and ARM64 manifests.
 
 For release `v0.2.0`, the workflow publishes `0.2.0` and `sha-FULL_COMMIT_SHA` to both registries. It updates `latest` only when GitHub identifies that release as the latest stable release. Prereleases receive their full version tag, such as `0.2.0-rc.1`, and never update `latest`. Rebuilding an older release also leaves `latest` unchanged.
+
+After publishing and verifying the current stable release, the workflow also updates the Docker Hub repository's full description from `README.md` at the validated release commit. Relative Markdown links are converted to GitHub URLs so installation guides remain accessible from Docker Hub. Prereleases, older releases, and build-only runs do not change the description.
+
+If the description update fails, the workflow fails even though the images may already be available. Check the Docker Hub token's permissions and repository access, then retry the release. README-only pushes do not update Docker Hub; the updated text is published with the next stable release.
 
 Do not move a published release tag. A retry rebuilds the same source commit, but a changed base image can produce a different digest. Use a new version for source changes.
 
