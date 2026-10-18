@@ -48,9 +48,9 @@ Select **Continue** once the credentials or key are ready.
 
 ## STEP 5 — Check the connection and approve the device
 
-The published `0.1.0` image authenticates as soon as you select **Check connection**. Verify the device independently using the trusted connection described below **before** selecting that button.
+In version `0.1.1` and later, **Check connection** opens **Verify the SSH fingerprint** without sending credentials. Verify the fingerprint using the trusted connection described below, then select **Confirm fingerprint and check access**. The application authenticates only with the confirmed host key.
 
-In a build from the current source, **Check connection** first opens **Verify the SSH fingerprint** without sending credentials. After verifying the fingerprint, select **Confirm fingerprint and check access**. The application authenticates only with the confirmed host key.
+If you still use `0.1.0`, upgrade first. That version authenticates immediately when you select **Check connection**.
 
 On **Confirm this device**, review the IP address, model, device name, SSH key type and fingerprint, and phone number if the SIM reports one.
 

@@ -12,9 +12,9 @@ Include the affected version, reproduction steps using synthetic data, expected 
 
 Security fixes are made on `main`. Use the latest patched release when available; older image tags are not maintained as separate branches. This is a community project without a guaranteed response time.
 
-The published `0.1.0` image authenticates during its initial connection check, before the user confirms the SSH host key. Verify the device independently before using that check. The current source fixes this order and upgrades Paramiko to 5.0.0; these changes require a new image release before they reach registry installations.
+Release `0.1.1` verifies the SSH host key before sending credentials and upgrades Paramiko to 5.0.0. Upgrade from `0.1.0`, which authenticates during its initial connection check before the user confirms the host key. If you must use `0.1.0`, verify the device independently before using that check.
 
-Paramiko 5 removes SHA-1 SSH signatures and key exchanges. A device that only offers those legacy algorithms cannot connect to the current source build. Update its firmware or SSH configuration rather than re-enabling SHA-1. See the [Paramiko changelog](https://www.paramiko.org/changelog.html#5.0.0).
+Paramiko 5 removes SHA-1 SSH signatures and key exchanges. A device that only offers those legacy algorithms cannot connect to version `0.1.1` or later. Update its firmware or SSH configuration rather than re-enabling SHA-1. See the [Paramiko changelog](https://www.paramiko.org/changelog.html#5.0.0).
 
 ## Deployment boundaries
 

@@ -41,7 +41,7 @@ In **Container Manager → Project → Create**, set the project name to **`unif
 ```yaml
 services:
   app:
-    image: ghcr.io/akinfold/unifi-sms:0.1.0
+    image: ghcr.io/akinfold/unifi-sms:0.1.1
     container_name: unifi-sms-app
     restart: unless-stopped
     ports:
@@ -71,7 +71,7 @@ Before deploying, replace **both occurrences of `10.20.30.10`** with your NAS's 
 | --- | --- |
 | `10.20.30.10:8080:8000` | Your NAS IP, the browser port, and the container port. Keep the final `8000`. |
 | `ALLOWED_HOSTS` | Your NAS IP. Keep `localhost,127.0.0.1` for local health checks. Use commas without spaces; do not include `http://` or a port. |
-| `image` | Keep `ghcr.io/akinfold/unifi-sms:0.1.0` for this installation. Docker selects AMD64 or ARM64 automatically. |
+| `image` | Keep `ghcr.io/akinfold/unifi-sms:0.1.1` for this installation. Docker selects AMD64 or ARM64 automatically. |
 | `sms-data` / `name` | Keep these values for a fresh installation. They identify the persistent data volume. |
 
 If port 8080 is already in use, change only its host-side value, for example to `10.20.30.10:8090:8000`, and use port 8090 in your browser.
@@ -118,4 +118,4 @@ For a future upgrade, back up first, edit the image tag in **Project → Details
 
 This original tutorial uses the numbered STEP format found in [Marius Hosting's NAS guides](https://mariushosting.com/). It is not affiliated with Marius Hosting, Synology, or Ubiquiti.
 
-The Compose configuration, application setup labels, and backup/restore commands were checked for release `0.1.0`. Vendor interface paths were checked against official documentation on October 18, 2026. The workflow has not been tested on physical Synology hardware; check labels against your installed DSM version.
+The Compose configuration, application setup labels, and backup/restore commands were checked for release `0.1.1`. Vendor interface paths were checked against official documentation on October 18, 2026. The workflow has not been tested on physical Synology hardware; check labels against your installed DSM version.

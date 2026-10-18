@@ -45,7 +45,7 @@ Paste the following YAML into the editor, or import [compose.nas.yaml](compose.n
 ```yaml
 services:
   app:
-    image: ghcr.io/akinfold/unifi-sms:0.1.0
+    image: ghcr.io/akinfold/unifi-sms:0.1.1
     container_name: unifi-sms-app
     restart: unless-stopped
     ports:
@@ -75,7 +75,7 @@ Before deploying, replace **both occurrences of `10.20.30.10`** with your NAS's 
 | --- | --- |
 | `10.20.30.10:8080:8000` | Your NAS IP, the browser port, and the container port. Keep the final `8000`. |
 | `ALLOWED_HOSTS` | Your NAS IP. Keep `localhost,127.0.0.1` for local health checks. Use commas without spaces; do not include `http://` or a port. |
-| `image` | Keep `ghcr.io/akinfold/unifi-sms:0.1.0` for this installation. Docker selects AMD64 or ARM64 automatically. |
+| `image` | Keep `ghcr.io/akinfold/unifi-sms:0.1.1` for this installation. Docker selects AMD64 or ARM64 automatically. |
 | `sms-data` / `name` | Keep these values for a fresh installation. They identify the persistent data volume. |
 
 If port 8080 is already in use, change only its host-side value, for example to `10.20.30.10:8090:8000`, and use port 8090 in your browser.
@@ -114,10 +114,10 @@ Follow [Back up the complete data volume](nas-maintenance.md#back-up-the-complet
 
 For later configuration changes, open the project's **⋯ → Settings → Compose configuration**, edit the YAML, and select **Redeploy**. Keep the volume name unchanged during upgrades. The [upgrade checklist](nas-maintenance.md#upgrade-the-image) explains how to pull a new release and verify it.
 
-The pinned `0.1.0` tag does not advance to another version when you check for image updates. Choose a published version explicitly. Do not delete the project or its volumes as an update method.
+The pinned `0.1.1` tag does not advance to another version when you check for image updates. Choose a published version explicitly. Do not delete the project or its volumes as an update method.
 
 ## Reference and validation
 
 This original tutorial follows the numbered STEP format used by [Marius Hosting](https://mariushosting.com/). It is not affiliated with Marius Hosting, UGREEN, or Ubiquiti.
 
-The Compose configuration, application setup labels, and backup/restore commands were checked for release `0.1.0`. Interface paths were checked against official UGREEN documentation on October 18, 2026. The workflow has not been tested on physical UGREEN hardware; use the equivalent controls in your installed UGOS Pro version.
+The Compose configuration, application setup labels, and backup/restore commands were checked for release `0.1.1`. Interface paths were checked against official UGREEN documentation on October 18, 2026. The workflow has not been tested on physical UGREEN hardware; use the equivalent controls in your installed UGOS Pro version.

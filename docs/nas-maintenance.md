@@ -47,7 +47,7 @@ sudo docker stop -t 45 unifi-sms-app &&
 if sudo docker run --rm --name unifi-sms-backup --user 0:0 \
   --entrypoint tar \
   --mount type=volume,source=unifi-sms_sms-data,target=/data,readonly \
-  ghcr.io/akinfold/unifi-sms:0.1.0 \
+  ghcr.io/akinfold/unifi-sms:0.1.1 \
   -czf - -C /data . > "$backup_file"; then
   sudo docker start unifi-sms-app
   if tar -tzf "$backup_file" >/dev/null; then
@@ -89,7 +89,7 @@ sudo docker volume create "$restore_volume"
 sudo docker run --rm -i --name unifi-sms-restore --user 0:0 \
   --entrypoint sh \
   --mount "type=volume,source=$restore_volume,target=/data" \
-  ghcr.io/akinfold/unifi-sms:0.1.0 \
+  ghcr.io/akinfold/unifi-sms:0.1.1 \
   -c 'test -z "$(ls -A /data)" || { echo "Restore volume is not empty" >&2; exit 1; }; tar -xzpf - -C /data && chown -R 10001:10001 /data && chmod 700 /data' \
   < "$backup_file" &&
 printf 'Restored volume: %s\n' "$restore_volume"
@@ -114,7 +114,7 @@ Keep the old volume and backup until you have verified the restored archive. Do 
 ## Upgrade the image
 
 1. Confirm the desired version exists in the [public container package](https://github.com/users/akinfold/packages/container/package/unifi-sms) and read any migration requirements. Back up the complete data volume first.
-2. In the NAS project editor, replace `ghcr.io/akinfold/unifi-sms:0.1.0` with the published version you intend to install. Keep the container name, `/data` mount, and the current volume name.
+2. In the NAS project editor, replace `ghcr.io/akinfold/unifi-sms:0.1.1` with the published version you intend to install. Keep the container name, `/data` mount, and the current volume name.
 3. On Synology, use **Project → Details → YAML Configurations** and deploy the edited configuration. On UGREEN, use **Project → ⋯ → Settings → Compose configuration → Redeploy**. Ensure the new image is pulled and the container is recreated; a simple restart keeps the old image.
 4. Verify the container's image and health, sign in, and check the archive and next device scan.
 

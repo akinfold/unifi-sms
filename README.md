@@ -6,7 +6,7 @@ The Docker image includes the web application and background importer. No extern
 
 **Installing on a NAS?** Follow the [Synology guide](docs/install-synology.md) or [UGREEN guide](docs/install-ugreen.md) for installation through the NAS web interface.
 
-**Version note:** The source on `main` verifies the SSH host key before sending credentials and uses Paramiko 5.0.0. The published `0.1.0` image does not include these security changes. Before using **Check connection** in `0.1.0`, independently verify the device address and fingerprint over a trusted channel. Build from source to use the updated connection flow; a new image release is required to distribute it.
+**Security update:** Release `0.1.1` verifies the SSH host key before sending credentials and upgrades Paramiko to 5.0.0. Upgrade from `0.1.0` to use this connection flow. Devices that only support SHA-1 SSH algorithms require a firmware or SSH configuration update; see the [security policy](SECURITY.md#supported-versions).
 
 ## Before you start
 
@@ -16,7 +16,7 @@ The Docker image includes the web application and background importer. No extern
 
 ## Quick start with Docker Compose
 
-The image is public: **no GitHub account, token, or source checkout is needed**. This example uses release `0.1.0` and stores application data in a persistent Docker volume.
+The image is public: **no GitHub account, token, or source checkout is needed**. This example uses release `0.1.1` and stores application data in a persistent Docker volume.
 
 ### 1. Create the Compose file
 
@@ -33,7 +33,7 @@ Save the following as **`compose.ghcr.yaml`** in that folder. It matches the [su
 name: unifi-sms
 services:
   app:
-    image: ghcr.io/akinfold/unifi-sms:${IMAGE_TAG:-0.1.0}
+    image: ghcr.io/akinfold/unifi-sms:${IMAGE_TAG:-0.1.1}
     container_name: unifi-sms-app
     restart: unless-stopped
     ports:
@@ -93,7 +93,7 @@ The device wizard opens automatically when no device is configured. You can also
 
 1. Enter the device's IP address or hostname, or select **Search local network**. If search finds nothing, enter the address manually; Docker networking can limit discovery. For a different subnet, use **LAN subnet** with a private IPv4 network of at most 256 addresses, such as `10.20.30.0/24`.
 2. Enter the SSH port, usually `22`, and the **device's SSH username**. Choose password or private-key authentication. For a key, paste an unencrypted private key or select **Generate SSH key**. Add the generated **public** key in UniFi Network using the wizard's instructions before continuing. See the [first-launch guide](docs/nas-first-run.md#step-3--obtain-the-devices-ssh-account) for credential and key instructions.
-3. Verify the SSH fingerprint through a trusted device console or administrator. In the current source build, **Check connection** reads the host key without authenticating; choose **Confirm fingerprint and check access** only after verifying it. The application then reads the model, name, and SIM phone number when available. In image `0.1.0`, the connection check authenticates immediately, so verify the device independently before selecting it.
+3. Select **Check connection** to read the host key without authenticating. Verify its SSH fingerprint through a trusted device console or administrator, then choose **Confirm fingerprint and check access**. The application authenticates using that key and reads the model, name, and SIM phone number when available.
 4. Select **Trust device and start imports**. The application saves the host key automatically and checks it on later connections; you do not need to prepare a `known_hosts` file.
 
 The worker scans for SMS about once a minute. Check the importer status in the inbox to confirm it is working. The inbox shows received dates, the device address and model, and the SIM phone number when available. **Update from device** refreshes device information. Some SIM cards do not report their number; this does not prevent SMS import.

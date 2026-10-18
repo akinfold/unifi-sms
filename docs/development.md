@@ -12,7 +12,7 @@ docker compose -f compose.yaml up --build -d
 docker compose -f compose.yaml ps
 ```
 
-Open [http://localhost:8080](http://localhost:8080), create the administrator, and complete the device wizard. The source Compose file builds `unifi-sms:0.1.0` locally, binds port `8080` to loopback, and uses project `unifi-sms`, container `unifi-sms-app`, and volume `unifi-sms_sms-data`.
+Open [http://localhost:8080](http://localhost:8080), create the administrator, and complete the device wizard. The source Compose file builds `unifi-sms:0.1.1` locally, binds port `8080` to loopback, and uses project `unifi-sms`, container `unifi-sms-app`, and volume `unifi-sms_sms-data`.
 
 The source and registry Compose files identify the same deployment. Do not start both as separate installations on one host. The explicit `-f compose.yaml` also excludes local override files; include any intended override explicitly.
 
@@ -50,12 +50,12 @@ With the Python environment above and Node.js 22 available, install the developm
 .venv/bin/python manage.py test inbox modem
 .venv/bin/python manage.py makemigrations --check --dry-run
 node --test tests/device_settings.test.cjs
-docker build -t unifi-sms:0.1.0 .
+docker build -t unifi-sms:0.1.1 .
 ```
 
 Tests use synthetic messages and a simulated modem. They cover PDU decoding, saving before deletion, slot reuse, recovery, multipart assembly, administrator setup, authentication and CSRF, trusted connection setup, device credential encryption, SMTP settings, and forwarding retries. Legacy device and SMTP environment variables are ignored rather than overriding saved settings.
 
-The current source confirms the host key before sending SSH credentials and uses Paramiko 5.0.0. It rejects legacy SHA-1 SSH algorithms; verify firmware compatibility before upgrading. The published `0.1.0` image predates these changes.
+Version `0.1.1` and the current source confirm the host key before sending SSH credentials and use Paramiko 5.0.0. They reject legacy SHA-1 SSH algorithms; verify firmware compatibility before upgrading from `0.1.0`.
 
 A Linux-only test exercises the device-side shell through a virtual serial port, including mode restoration and lock cleanup. Verify compatibility with the target LTE Pro firmware before relying on unattended import; simulated tests do not establish hardware compatibility.
 
