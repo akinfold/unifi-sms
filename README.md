@@ -23,6 +23,25 @@ docker buildx build --platform linux/amd64,linux/arm64 --load -t unifi-sms:0.1.0
 
 To transfer an image without a registry, use `docker save -o unifi-sms.tar unifi-sms:0.1.0`, copy the archive to the destination, and run `docker load -i unifi-sms.tar`. Use `docker compose up -d --no-build` on that host. The destination also needs `compose.yaml` and a copy of `.env.example` saved as `.env`. Configure device access in the interface.
 
+## Install the registry image
+
+The release image is `ghcr.io/akinfold/unifi-sms:0.1.0`, with support for Linux AMD64 and ARM64. The `latest` tag tracks the most recent published release. Use a version tag to keep upgrades explicit.
+
+Copy `compose.ghcr.yaml` to the destination server. For a private package, sign in with a GitHub personal access token (classic) that has `read:packages` permission and access to the package. Enter the token when Docker asks for a password:
+
+```sh
+docker login ghcr.io -u YOUR_GITHUB_USERNAME
+docker compose -f compose.ghcr.yaml pull
+docker compose -f compose.ghcr.yaml up -d
+docker compose -f compose.ghcr.yaml ps
+```
+
+The file runs the published image without building source code. Its defaults bind port 8080 to localhost and keep SQLite, credentials, and the application secret key in the `unifi-sms_sms-data` volume. Open an SSH tunnel from your computer with `ssh -L 8080:127.0.0.1:8080 USER@SERVER`, then visit <http://localhost:8080> and complete the administrator and device setup.
+
+For access through a server address, set `ALLOWED_HOSTS` to that hostname or IP address and set `BIND_ADDRESS` to the listening interface in a `.env` file beside the Compose file. To use an HTTPS reverse proxy, also set `REQUIRE_HTTPS=1`, `TRUST_PROXY=1`, and `CSRF_TRUSTED_ORIGINS` to the public HTTPS origin. Forwarding and device access stay in the application interface.
+
+To upgrade, set `IMAGE_TAG` in that `.env` file to the desired published version, then run the same `pull` and `up -d` commands. Keep the data volume when recreating the container.
+
 ## Connect an LTE Pro
 
 Sign in as an administrator. If no device is configured, the connection wizard opens automatically.
