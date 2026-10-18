@@ -40,6 +40,8 @@ jobs:
         run: python -m ruff check .
       - name: Check migrations
         run: python manage.py makemigrations --check --dry-run
+      - name: Collect static assets
+        run: python manage.py collectstatic --noinput
       - name: Run Python tests
         run: python manage.py test inbox modem --noinput
       - name: Run JavaScript tests
