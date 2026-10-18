@@ -1,33 +1,63 @@
 # UniFi SMS
 
-A small Django service that archives incoming UniFi LTE Pro SMS messages in SQLite and clears their modem slots after the database transaction commits. It provides an administrator-only inbox with search, unread filtering, a message reader, and bulk deletion.
+Archive incoming SMS from a UniFi LTE Pro and free its message slots after saving them to SQLite. Browse, search, read, and delete messages in an administrator-only web inbox, with optional email forwarding.
 
-The image runs Gunicorn and one supervised importer. No Redis, task queue, frontend build, or external database is required.
+The Docker image includes the web application and background importer. No external database or additional services are required.
 
-## Quick start
+**Installing on a NAS?** Follow the [Synology guide](docs/install-synology.md) or [UGREEN guide](docs/install-ugreen.md) for installation through the NAS web interface.
+
+**Version note:** The source on `main` verifies the SSH host key before sending credentials and uses Paramiko 5.0.0. The published `0.1.0` image does not include these security changes. Before using **Check connection** in `0.1.0`, independently verify the device address and fingerprint over a trusted channel. Build from source to use the updated connection flow; a new image release is required to distribute it.
+
+## Before you start
+
+- Install Docker with the `docker compose` command on the destination host. The published image supports **Linux AMD64 and ARM64**; 32-bit ARM is not supported.
+- Ensure the container can reach the LTE Pro over SSH. Obtain the device's SSH username and password, or access to UniFi Network to add an SSH public key. The device's SSH account may differ from your UniFi web login.
+- Use one UniFi SMS instance per device. Imported messages are removed from the device, so keep backups of the archive.
+
+## Quick start with Docker Compose
+
+The image is public: **no GitHub account, token, or source checkout is needed**. This example uses release `0.1.0` and stores application data in a persistent Docker volume.
+
+### 1. Create the Compose file
+
+On the Docker host, create a deployment folder:
 
 ```sh
-cp .env.example .env
-docker compose up --build -d
+mkdir -p unifi-sms
+cd unifi-sms
 ```
 
-Open <http://localhost:8080>. Choose an administrator username and set a password of at least 8 characters. The wizard closes after account creation. Importing starts only after setup is complete and an SSH connection is configured.
+Save the following as **`compose.ghcr.yaml`** in that folder. It matches the [supplied Compose file](compose.ghcr.yaml).
 
-The default port binds to the Docker host's loopback interface. The Compose project and container are named `unifi-sms` and `unifi-sms-app`. The locally built image is `unifi-sms:0.1.0`.
-
-To build both common Linux architectures locally with a Docker image store that supports multiple platforms:
-
-```sh
-docker buildx build --platform linux/amd64,linux/arm64 --load -t unifi-sms:0.1.0 .
+```yaml
+name: unifi-sms
+services:
+  app:
+    image: ghcr.io/akinfold/unifi-sms:${IMAGE_TAG:-0.1.0}
+    container_name: unifi-sms-app
+    restart: unless-stopped
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${PORT:-8080}:8000"
+    environment:
+      DATA_DIR: /data
+      ALLOWED_HOSTS: "${ALLOWED_HOSTS:-localhost,127.0.0.1,[::1]}"
+      CSRF_TRUSTED_ORIGINS: "${CSRF_TRUSTED_ORIGINS:-}"
+      REQUIRE_HTTPS: "${REQUIRE_HTTPS:-0}"
+      TRUST_PROXY: "${TRUST_PROXY:-0}"
+    volumes:
+      - sms-data:/data
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    stop_grace_period: 45s
+volumes:
+  sms-data:
 ```
 
-To transfer an image without a registry, use `docker save -o unifi-sms.tar unifi-sms:0.1.0`, copy the archive to the destination, and run `docker load -i unifi-sms.tar`. Use `docker compose up -d --no-build` on that host. The destination also needs `compose.yaml` and a copy of `.env.example` saved as `.env`. Configure device access in the interface.
+### 2. Start the service
 
-## Install the registry image
-
-The release image is `ghcr.io/akinfold/unifi-sms:0.1.0`, with support for Linux AMD64 and ARM64. The `latest` tag tracks the most recent published release. Use a version tag to keep upgrades explicit.
-
-Copy `compose.ghcr.yaml` to the destination server. The image is public and can be pulled without a GitHub account or token:
+Run these commands from the deployment folder:
 
 ```sh
 docker compose -f compose.ghcr.yaml pull
@@ -35,109 +65,108 @@ docker compose -f compose.ghcr.yaml up -d
 docker compose -f compose.ghcr.yaml ps
 ```
 
-The file runs the published image without building source code. Its defaults bind port 8080 to localhost and keep SQLite, credentials, and the application secret key in the `unifi-sms_sms-data` volume. Open an SSH tunnel from your computer with `ssh -L 8080:127.0.0.1:8080 USER@SERVER`, then visit <http://localhost:8080> and complete the administrator and device setup.
-
-For access through a server address, set `ALLOWED_HOSTS` to that hostname or IP address and set `BIND_ADDRESS` to the listening interface in a `.env` file beside the Compose file. To use an HTTPS reverse proxy, also set `REQUIRE_HTTPS=1`, `TRUST_PROXY=1`, and `CSRF_TRUSTED_ORIGINS` to the public HTTPS origin. Forwarding and device access stay in the application interface.
-
-To upgrade, set `IMAGE_TAG` in that `.env` file to the desired published version, then run the same `pull` and `up -d` commands. Keep the data volume when recreating the container.
-
-## Connect an LTE Pro
-
-Sign in as an administrator. If no device is configured, the connection wizard opens automatically.
-
-1. Select a discovered device, or enter its address manually. Search combines UniFi discovery on UDP port 10001 with unauthenticated SSH banner checks on TCP port 22. Search also uses reverse DNS (PTR) to show device hostnames and places names matching LTE Pro first. **Likely LTE Pro** means the hostname suggests the model; DNS names can change and do not establish device identity. SSH results are candidates: the authenticated check confirms the LTE model before trust or SMS import. Search can take just over a minute and lists the subnets it checked. It limits simultaneous SSH connections and waits for delayed connection and banner responses to avoid missing devices behind container networking. If DNS is unavailable or slow, candidates still appear without hostnames. In Docker, automatic search also tries four common LAN subnets because bridge networking does not expose the host LAN. For another network, enter its private IPv4 subnet under **LAN subnet** (at most 256 addresses). Enable SSH on the device. Enter its address manually if SSH uses a different port or the network blocks discovery.
-2. Enter the SSH port and username. Choose a password, paste an unencrypted private key, or generate an RSA key in the application.
-3. For a generated key, copy the public key and install it in UniFi Network under **Settings → Devices → Device Updates and Settings → Device SSH Settings**. Older versions use **Settings → System → Advanced → Device Authentication → SSH Keys**. Add an SSH key, paste the public key, and apply the changes. The wizard includes these instructions and a link to [Ubiquiti's SSH key guide](https://help.ui.com/hc/en-us/articles/235247068-Adding-SSH-Keys-to-UniFi-Devices).
-4. Select **Check connection**. Review the SSH fingerprint, connected IP address, model, device name, and SIM phone number when available. Select **Trust device and start imports** to activate it. A check expires after ten minutes; changing credentials requires another check.
-
-Only an explicitly trusted configuration is used for SMS import. The application writes the confirmed host key to `/data/known_hosts` with owner-only permissions and checks it on later connections. A changed or missing host key stops connections. Passwords and private keys are encrypted in SQLite using the application's persistent secret key; they are never shown again in the form. Keep the data volume and its backups private, and preserve `/data/secret-key` when restoring the database.
-
-To replace a device or change its access details, open **Settings → Device → Change device connection**. The current connection stays active until the replacement is checked and trusted. Canceling the wizard discards its draft; drafts expire after 24 hours. Device access and SMTP are configured in the interface. Legacy `LTE_*` and `SMTP_*` environment variables are ignored.
-
-## Device information
-
-The inbox shows the configured SSH address, the hardware model read from `board.name` in `/etc/board.info`, the phone number stored on the SIM, and the time of the last successful SIM check. Device details are visible only to signed-in administrators. The worker reads the SIM number with `AT+CNUM` after administrator setup, checks it automatically every hour, and saves the result in SQLite. Some SIM cards do not store a number; the inbox shows **Not available** when the device returns none.
-
-Select **Update from device** to refresh the model and SIM number, for example after replacing the SIM. The button shows **Updating…** until the worker finishes. A request waits if the worker is importing messages or forwarding email. Number checks use the same modem lock as SMS imports.
-
-If a check fails, the inbox keeps the last saved number and labels it as outdated. A successful empty response clears the previous number. Changing the configured device address or SSH port uses a separate cached result. Reading the number does not change the number stored on the SIM. Model checks run independently of SIM number checks. If the model cannot be read, the inbox keeps its saved value and shows that the update failed.
-
-## Forward SMS by email
-
-Open **Settings → Email forwarding** to configure the optional SMTP server, port, encryption, sender, and recipients. Settings are stored in SQLite and take effect after saving. Use STARTTLS on port 587 or implicit TLS on port 465 as required by your provider. Leave both credentials empty only for a server that accepts mail without authentication.
-
-The form shows whether a password is saved without displaying it. Choose **Replace password** to enter a new one, or **Remove login details** to clear both the username and password. Changes apply only after **Save settings**. The SMTP password is stored in the private SQLite volume; protect that volume and its backups.
-
-Select **Send test email** to check the current form values without saving them. The test sends a separate message to each configured recipient, even while forwarding is disabled. A blank password uses the saved password. Success means the server accepted the message; check the recipient inbox and spam folder for delivery.
-
-Only messages completed while forwarding is enabled enter the persistent queue. Existing complete messages are not sent retroactively. Multipart SMS wait until all parts arrive. Each email includes the SMS sender, received timestamp with its UTC offset, and full text. Recipients receive separate copies.
-
-SMTP delivery runs after modem import. Delivery failures leave the SMS archive and device cleanup unaffected. Retries start after one minute and back off to one hour; the worker checks once a minute. Disabling forwarding pauses queued messages. Pending messages use current server and authentication settings, while recipient addresses are fixed when the first delivery attempt starts. Deleting an archived SMS also cancels its queued delivery unless a send is already in progress.
-
-Successful recipients are recorded separately, so a retry after a partial failure does not resend to them. SMTP cannot guarantee exactly-once delivery: a crash after server acceptance but before recording success may cause a duplicate. Retries retain the same Message-ID for each recipient. The Settings page shows pending delivery counts and the latest failure. A successful send means the SMTP server accepted the message, not that it reached the recipient's inbox.
-
-## Import and deletion behavior
-
-Each scan selects storage with `AT+CPMS`, reads PDUs with `AT+CMGL=4`, and supports zero-based slot numbers. Text decoding covers GSM-7, its standard extension alphabet, UCS-2, numeric and alphanumeric senders, and multipart headers with 8-bit or 16-bit references.
-
-Each segment is committed to SQLite with its original PDU before any deletion. The importer rereads the slot using `AT+CMGR` and compares the complete PDU, then deletes only that slot with `AT+CMGD`. SQLite uses WAL and synchronous `FULL`. A local file lock and a device-side lock prevent concurrent instances of this importer from sharing the same modem.
-
-If reading, decoding, verification, or saving fails, the affected slot is retained. A deletion failure leaves the archive intact and is retried on the next scan. A scan also reconciles archived segments that have already disappeared from the device. Unsupported binary messages, compressed messages, language-shift headers, and malformed PDUs remain on the device and produce a warning in the inbox.
-
-Multipart segments are grouped by device, sender, reference, part count, and a 24-hour timestamp window. Missing parts are shown explicitly. Reference reuse within that window can be ambiguous; original PDUs are retained with the archive. Exact repeated PDUs are deduplicated.
-
-Deleting messages in the web interface removes their archive content. This action is blocked while any segment still awaits confirmed device cleanup. Minimal fingerprint receipts remain to prevent deleted messages from reappearing after a replay; they contain no message text after deletion. SQLite deletion is not forensic erasure of database pages or backups.
-
-Only one service instance should own the database volume. Avoid running another SMS reader or deletion tool against the modem at the same time: external tools and firmware do not honor the service's lock, and a serial modem offers no atomic compare-and-delete operation. The modem's original text/PDU mode and serial settings are restored when the session closes. The selected SMS storage remains configured on the device.
-
-## Operations
-
-The inbox shows importer state, pending device cleanup, and the last successful scan. A stopped importer becomes stale in the UI. `/healthz/` checks the web process and SQLite connectivity; modem failures appear in the inbox without making the HTTP service unhealthy. The container exits if either its web server or importer exits, allowing the restart policy to recover it.
-
-The named volume `unifi-sms_sms-data` holds the database and Django secret key. Keep it when replacing the container. `docker compose down` preserves it; `docker compose down -v` destroys it.
-
-To back up a consistent, complete data directory:
+The container is named `unifi-sms-app`. Wait for it to report **healthy**. If it exits or remains unhealthy, inspect its logs:
 
 ```sh
-docker compose stop
-docker cp unifi-sms-app:/data ./unifi-sms-backup
-docker compose start
+docker compose -f compose.ghcr.yaml logs --tail=100 app
 ```
 
-Protect this backup: it contains SMS content, authentication secrets, saved SSH credentials, and any SMTP password saved in Settings. Restore the entire directory into the data volume of a stopped instance, retaining UID 10001 ownership. Do not replace the persistent secret key during a routine upgrade.
+### 3. Open the application and create an administrator
 
-To change a forgotten administrator password:
+If Docker runs on your computer, open [http://localhost:8080](http://localhost:8080).
+
+If Docker runs on another server, run this command **on your computer**, replacing `USER` and `SERVER` with the server's SSH account and address. Keep the tunnel open while using the application:
 
 ```sh
-docker compose exec app python manage.py changepassword ADMIN_USERNAME
+ssh -N -L 8080:127.0.0.1:8080 USER@SERVER
 ```
 
-A lost SSH session normally releases the device lock. After a device crash, `/tmp/unifi-sms-modem.lock` may need removal through an administrative console; first confirm no importer session is active. The importer never removes another session's lock automatically.
+Then open [http://localhost:8080](http://localhost:8080). The default configuration listens only on the Docker host's loopback interface.
 
-## Development and validation
+On **Create administrator**, choose an application username and a password of at least **8 characters**. Common or entirely numeric passwords are rejected. There is no default account or setup token. Account creation closes after the first administrator is registered.
 
-Use Python 3.12. The image uses Python 3.12 and pinned dependency versions from `requirements.txt`.
+For direct access through a LAN address instead of a tunnel, see [LAN and HTTPS access](#lan-and-https-access).
+
+## Connect the LTE Pro
+
+The device wizard opens automatically when no device is configured. You can also open **Settings → Device**.
+
+1. Enter the device's IP address or hostname, or select **Search local network**. If search finds nothing, enter the address manually; Docker networking can limit discovery. For a different subnet, use **LAN subnet** with a private IPv4 network of at most 256 addresses, such as `10.20.30.0/24`.
+2. Enter the SSH port, usually `22`, and the **device's SSH username**. Choose password or private-key authentication. For a key, paste an unencrypted private key or select **Generate SSH key**. Add the generated **public** key in UniFi Network using the wizard's instructions before continuing. See the [first-launch guide](docs/nas-first-run.md#step-3--obtain-the-devices-ssh-account) for credential and key instructions.
+3. Verify the SSH fingerprint through a trusted device console or administrator. In the current source build, **Check connection** reads the host key without authenticating; choose **Confirm fingerprint and check access** only after verifying it. The application then reads the model, name, and SIM phone number when available. In image `0.1.0`, the connection check authenticates immediately, so verify the device independently before selecting it.
+4. Select **Trust device and start imports**. The application saves the host key automatically and checks it on later connections; you do not need to prepare a `known_hosts` file.
+
+The worker scans for SMS about once a minute. Check the importer status in the inbox to confirm it is working. The inbox shows received dates, the device address and model, and the SIM phone number when available. **Update from device** refreshes device information. Some SIM cards do not report their number; this does not prevent SMS import.
+
+To change devices or credentials, select **Settings → Device → Change device connection**. The current connection stays active until the replacement is checked and trusted.
+
+## Set up optional email forwarding
+
+1. Open **Settings → Email forwarding**.
+2. Enter your provider's SMTP host, port, encryption mode, login details, sender, and recipients. Match the provider's requirements; STARTTLS commonly uses port `587`, while implicit TLS uses `465`.
+3. Select **Send test email** and check the recipient inbox. The test uses the current form values without saving them; a blank password uses the saved password.
+4. Select **Enable email forwarding**, then **Save settings**.
+
+Only new, complete SMS messages are queued while forwarding is enabled; existing messages are not forwarded retroactively. Failed deliveries are retried without blocking SMS archiving. See [email delivery behavior](docs/behavior.md#email-delivery) for retry and duplicate-delivery limits.
+
+**Device access and SMTP are configured in the web interface.** Legacy `LTE_*` and `SMTP_*` environment variables are ignored.
+
+## Keep data and update the service
+
+The volume **`unifi-sms_sms-data`**, mounted at `/data`, contains the SMS database, administrator accounts, saved credentials, trusted host keys, and persistent application secret. Keep the entire volume when replacing the container. `docker compose -f compose.ghcr.yaml down` preserves it; adding **`-v` deletes it**.
+
+Before an upgrade, make a [complete backup](docs/nas-maintenance.md#back-up-the-complete-data-volume). The backup and restore commands also apply to this Docker installation. Copying the Compose file or exporting the image does not back up the data. Protect backups as secrets and keep `secret-key` with the database so saved device credentials remain usable.
+
+To upgrade, set `IMAGE_TAG` to the desired published version in a `.env` file beside `compose.ghcr.yaml`, then run:
 
 ```sh
-python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
-.venv/bin/python manage.py migrate
-.venv/bin/python manage.py collectstatic --noinput
-.venv/bin/python manage.py bootstrap
-.venv/bin/python manage.py runserver --insecure
-# In a second terminal:
-.venv/bin/python manage.py runworker
+docker compose -f compose.ghcr.yaml pull
+docker compose -f compose.ghcr.yaml up -d
+docker compose -f compose.ghcr.yaml ps
 ```
 
-`--insecure` serves the collected local development assets with Django's development server. Use the Docker image for deployment.
+Available tags are listed on the [container package page](https://github.com/users/akinfold/packages/container/package/unifi-sms). Version tags keep upgrades explicit; `latest` can change between pulls.
+
+To reset an existing administrator's password, replace `ADMIN_USERNAME` and run:
 
 ```sh
-.venv/bin/python manage.py test inbox modem
-.venv/bin/python manage.py makemigrations --check --dry-run
-node --test tests/device_settings.test.cjs
-docker build -t unifi-sms:0.1.0 .
+docker compose -f compose.ghcr.yaml exec app python manage.py changepassword ADMIN_USERNAME
 ```
 
-Tests use synthetic messages and a simulated modem to cover decoding, durable save-before-delete behavior, slot reuse, retry and recovery, multipart assembly, first-run setup, authentication, CSRF, archive deletion, device and SMTP settings precedence, SSH credential encryption, forwarding retries, and local SMTP transport. A Linux-only test also exercises the device-side shell through a virtual serial port, including mode restoration and lock cleanup. End-to-end compatibility must still be verified on the target LTE Pro firmware before relying on unattended import.
+## LAN and HTTPS access
 
-PDU fields follow [3GPP TS 23.040](https://www.etsi.org/deliver/etsi_ts/123000_123099/123040/16.00.00_60/ts_123040v160000p.pdf). No controller HTTP API is used for SMS access.
+Before an administrator exists, anyone who can reach setup can create that first account. Complete setup before sharing access.
+
+For LAN access, create or edit `.env` beside `compose.ghcr.yaml`. Replace the example IP with an address assigned to the Docker host:
+
+```dotenv
+BIND_ADDRESS=10.20.30.10
+PORT=8080
+ALLOWED_HOSTS=10.20.30.10,localhost,127.0.0.1
+```
+
+Run `docker compose -f compose.ghcr.yaml up -d` again and open `http://10.20.30.10:8080` using your actual address. Allow the chosen port through the host firewall only for intended clients.
+
+For HTTPS, follow the [reverse-proxy instructions](docs/nas-maintenance.md#optional-https-access). Set `REQUIRE_HTTPS=1`, `TRUST_PROXY=1`, and `CSRF_TRUSTED_ORIGINS` only after configuring a trusted HTTPS proxy and restricting direct backend access. `ALLOWED_HOSTS` takes hostnames or IP addresses without schemes or ports; `CSRF_TRUSTED_ORIGINS` takes full origins such as `https://sms.example.com`.
+
+## Troubleshooting
+
+| Symptom | First check |
+| --- | --- |
+| Device search finds nothing | Enter the device IP manually; check SSH access and routing from the Docker host. |
+| SSH authentication fails | Use the managed device's SSH credentials and confirm any public key has been applied. |
+| SSH host key changed | Verify the replacement independently, then approve it through the device wizard. |
+| HTTP 400 / DisallowedHost | Add the browser's hostname or IP to `ALLOWED_HOSTS` and recreate the container. |
+| Healthy container, but no SMS | Check importer status in the inbox. Container health checks the web service and database, not device connectivity. |
+| A SIM number is unavailable | Some SIM cards do not store a phone number. SMS import can still work. |
+
+## More documentation
+
+- [First launch and SSH-key setup](docs/nas-first-run.md)
+- [Backups, migration, upgrades, HTTPS, and troubleshooting](docs/nas-maintenance.md)
+- [Discovery, credentials, SMS cleanup, and email delivery behavior](docs/behavior.md)
+- [Source builds, local development, and validation](docs/development.md)
+
+## Contributing and security
+
+See [Contributing](CONTRIBUTING.md) for development and pull requests, and the [Security policy](SECURITY.md) for private vulnerability reports and deployment boundaries. This project is distributed under the [MIT License](LICENSE). It is not affiliated with or endorsed by Ubiquiti.

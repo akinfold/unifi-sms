@@ -7,7 +7,7 @@ dnspython==2.8.0
 gunicorn==23.0.0
 invoke==3.0.3
 packaging==26.3
-paramiko==4.0.0
+paramiko==5.0.0
 pycparser==3.0
 PyNaCl==1.6.2
 sqlparse==0.6.0

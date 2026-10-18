@@ -1,4 +1,8 @@
 FROM python:3.12-slim
+
+LABEL org.opencontainers.image.source="https://github.com/akinfold/unifi-sms" \
+      org.opencontainers.image.description="SMS archive for UniFi LTE Pro" \
+      org.opencontainers.image.licenses="MIT"
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 DATA_DIR=/data
 WORKDIR /app
 COPY requirements.txt .

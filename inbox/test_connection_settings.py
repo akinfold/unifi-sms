@@ -31,7 +31,7 @@ class ConnectionWizardTests(TestCase):
         self.addCleanup(override.disable)
         self.admin = User.objects.create_superuser("administrator", password="synthetic-password")
         self.client.force_login(self.admin)
-        self.probe = {"address": "10.20.30.40", "model": "U-LTE-Pro-EU", "name": "LTE device", "numbers": ["+15550102001"], "fingerprint": key_fingerprint(TEST_HOST_KEY), "key_type": TEST_HOST_KEY.get_name(), "host_key": f"{TEST_HOST_KEY.get_name()} {TEST_HOST_KEY.get_base64()}"}
+        self.probe = {"address": "10.20.30.40", "model": "U-LTE-Pro-EU", "name": "LTE device", "numbers": ["+15550102001"], "identity_verified": True, "fingerprint": key_fingerprint(TEST_HOST_KEY), "key_type": TEST_HOST_KEY.get_name(), "host_key": f"{TEST_HOST_KEY.get_name()} {TEST_HOST_KEY.get_base64()}"}
 
     def address(self):
         return self.client.post(URL, {"action": "choose-address", "host": "device.example.invalid"})
@@ -44,10 +44,50 @@ class ConnectionWizardTests(TestCase):
     def checked(self):
         self.address()
         self.access()
+        self.inspect()
         with patch("inbox.connection_views.probe_connection", return_value=self.probe):
-            response = self.client.post(URL, {"action": "check"})
+            response = self.client.post(URL, {"action": "confirm-host", "probe_id": str(DeviceSetup.objects.get().probe_id)})
         self.assertContains(response, self.probe["fingerprint"])
         return DeviceSetup.objects.get()
+
+    def inspect(self):
+        host_key = {key: self.probe[key] for key in ("address", "fingerprint", "key_type", "host_key")}
+        host_key["identity_verified"] = False
+        with patch("inbox.connection_views.inspect_host_key", return_value=host_key), patch(
+                "inbox.connection_views.probe_connection") as authenticate:
+            response = self.client.post(URL, {"action": "check"})
+        authenticate.assert_not_called()
+        self.assertContains(response, "No SSH credentials have been sent")
+        return DeviceSetup.objects.get()
+
+    def test_host_key_cannot_activate_a_device_without_authentication(self):
+        self.address()
+        self.access()
+        draft = self.inspect()
+        self.client.post(URL, {"action": "trust", "probe_id": str(draft.probe_id)})
+        self.assertFalse(DeviceSettings.objects.exists())
+        self.assertFalse((settings.DATA_DIR / "known_hosts").exists())
+
+    def test_host_confirmation_requires_a_current_matching_token(self):
+        self.address()
+        self.access()
+        draft = self.inspect()
+        with patch("inbox.connection_views.probe_connection") as authenticate:
+            response = self.client.post(URL, {"action": "confirm-host", "probe_id": str(uuid.uuid4())})
+            self.assertContains(response, "expired or changed")
+            DeviceSetup.objects.update(checked_at=timezone.now() - timedelta(minutes=11))
+            response = self.client.post(URL, {"action": "confirm-host", "probe_id": str(draft.probe_id)})
+            self.assertContains(response, "expired or changed")
+        authenticate.assert_not_called()
+
+    def test_authentication_uses_only_the_confirmed_key(self):
+        self.address()
+        self.access()
+        draft = self.inspect()
+        with patch("inbox.connection_views.probe_connection", return_value=self.probe) as authenticate:
+            response = self.client.post(URL, {"action": "confirm-host", "probe_id": str(draft.probe_id)})
+        self.assertEqual(authenticate.call_args.kwargs, {"host_key": self.probe["host_key"]})
+        self.assertContains(response, "Confirm this device")
 
     def test_unconfigured_administrator_enters_wizard(self):
         self.assertRedirects(self.client.get("/"), URL)
@@ -189,8 +229,9 @@ class ConnectionWizardTests(TestCase):
         draft = self.checked()
         self.access(password="changed-synthetic-secret")
         self.assertIsNone(DeviceSetup.objects.get().probe_id)
+        self.inspect()
         with patch("inbox.connection_views.probe_connection", side_effect=ProbeError("private marker")):
-            response = self.client.post(URL, {"action": "check"})
+            response = self.client.post(URL, {"action": "confirm-host", "probe_id": str(DeviceSetup.objects.get().probe_id)})
         self.assertNotContains(response, "private marker")
         self.assertIsNone(DeviceSetup.objects.get().probe_id)
         self.client.post(URL, {"action": "trust", "probe_id": str(draft.probe_id)})
@@ -221,11 +262,12 @@ class ConnectionWizardTests(TestCase):
     def test_probe_finishing_after_credential_change_is_discarded(self):
         self.address()
         self.access()
-        def result(values):
+        self.inspect()
+        def result(values, *, host_key):
             DeviceSetup.objects.update(revision=uuid.uuid4(), password="fernet:changed")
             return self.probe
         with patch("inbox.connection_views.probe_connection", side_effect=result):
-            self.client.post(URL, {"action": "check"})
+            self.client.post(URL, {"action": "confirm-host", "probe_id": str(DeviceSetup.objects.get().probe_id)})
         self.assertIsNone(DeviceSetup.objects.get().probe_id)
 
     def test_other_administrator_cannot_trust_a_draft(self):

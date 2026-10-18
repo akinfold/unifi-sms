@@ -1,0 +1,24 @@
+services:
+  app:
+    image: ghcr.io/akinfold/unifi-sms:0.1.0
+    container_name: unifi-sms-app
+    restart: unless-stopped
+    ports:
+      - "10.20.30.10:8080:8000"
+    environment:
+      DATA_DIR: /data
+      ALLOWED_HOSTS: "10.20.30.10,localhost,127.0.0.1"
+      CSRF_TRUSTED_ORIGINS: ""
+      REQUIRE_HTTPS: "0"
+      TRUST_PROXY: "0"
+    volumes:
+      - sms-data:/data
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    stop_grace_period: 45s
+volumes:
+  sms-data:
+    name: unifi-sms_sms-data
+name: unifi-sms

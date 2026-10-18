@@ -15,7 +15,7 @@ from .connection_forms import AddressForm, SSHAccessForm
 from .device import device_source, request_phone_refresh
 from .discovery import discover_devices, search_networks
 from .models import DeviceInfo, DeviceSettings, DeviceSetup
-from .probe import ProbeError, probe_connection
+from .probe import ProbeError, inspect_host_key, probe_connection
 from .trust import atomic_trust_update, generate_private_key, public_key_for, save_known_host
 from .views import admin_required, initialized, rate_limited
 
@@ -33,7 +33,9 @@ def _render(request, active, draft, *, step=None, form=None, error=""):
     if step is None:
         step = request.session.get("device_step") if draft else None
     if step is None:
-        step = "address" if not draft else "access" if not draft.username else "trust" if draft.probe else "verify"
+        step = "address" if not draft else "access" if not draft.username else "verify"
+        if draft and draft.probe:
+            step = "trust" if draft.probe.get("identity_verified") else "host-key"
         if not draft and active and active.trusted_at:
             step = "summary"
     request.session["device_step"] = step
@@ -151,11 +153,19 @@ def device_settings(request):
         DeviceSetup.objects.filter(pk=draft.pk, revision=previous_revision).update(**changes)
         request.session["device_step"] = "verify"
         return redirect("device-settings")
-    if action == "check":
+    if action in ("check", "confirm-host"):
         if rate_limited(request):
             return HttpResponse("Too many connection checks. Try again in 15 minutes.", status=429)
         if not draft.username or not (draft.password or draft.private_key):
             return _render(request, active, draft, step="access", error="Enter SSH access details first.")
+        approved_key = None
+        if action == "confirm-host":
+            if (not draft.probe_id or str(draft.probe_id) != request.POST.get("probe_id")
+                    or not draft.checked_at or now - draft.checked_at > PROBE_LIFETIME
+                    or draft.probe.get("identity_verified") or not draft.probe.get("host_key")):
+                return _render(request, active, draft, step="verify",
+                               error="This host key check has expired or changed. Check the connection again.")
+            approved_key = draft.probe["host_key"]
         # Invalidate an older successful check before any network operation.
         revision = uuid.uuid4()
         if not DeviceSetup.objects.filter(pk=draft.pk, revision=draft.revision).update(
@@ -164,23 +174,27 @@ def device_settings(request):
         draft.probe, draft.probe_id, draft.checked_at = {}, None, None
         try:
             values = {name: getattr(draft, name) for name in ("host", "port", "username", "auth_method")}
-            values.update(_draft_secrets(draft))
-            result = probe_connection(values)
+            if approved_key is None:
+                result = inspect_host_key(values)
+            else:
+                values.update(_draft_secrets(draft))
+                result = probe_connection(values, host_key=approved_key)
         except (ProbeError, ValueError):
             return _render(request, active, draft, step="verify",
-                           error="Connection check failed. Check the address, SSH port, username, and credential. For key authentication, make sure its public key has been applied to the device.")
+                           error="Connection check failed. Check the address, SSH port, username, and credential. If the SSH key changed after confirmation, check its fingerprint again. For key authentication, make sure its public key has been applied to the device.")
         token = uuid.uuid4()
         changed = DeviceSetup.objects.filter(pk=draft.pk, revision=revision).update(
             probe=result, probe_id=token, checked_at=timezone.now())
         if not changed:
             return redirect("device-settings")
         draft.refresh_from_db()
-        return _render(request, active, draft, step="trust")
+        return _render(request, active, draft, step="trust" if approved_key else "host-key")
     if action == "trust":
         try:
             with atomic_trust_update(), transaction.atomic():
                 draft = DeviceSetup.objects.select_for_update().filter(pk=draft.pk, owner=request.user).first()
-                if (not draft or not draft.probe_id or str(draft.probe_id) != request.POST.get("probe_id")
+                if (not draft or not draft.probe.get("identity_verified")
+                        or not draft.probe_id or str(draft.probe_id) != request.POST.get("probe_id")
                         or not draft.checked_at or timezone.now() - draft.checked_at > PROBE_LIFETIME):
                     return _render(request, active, draft, step="verify",
                                    error="This connection check has expired or changed. Check the connection again.")

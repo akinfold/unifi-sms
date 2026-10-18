@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DATA_DIR: ${{ runner.temp }}/unifi-sms-data
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - name: Install dependencies
+        run: python -m pip install -r requirements-dev.txt
+      - name: Lint Python
+        run: python -m ruff check .
+      - name: Check migrations
+        run: python manage.py makemigrations --check --dry-run
+      - name: Run Python tests
+        run: python manage.py test inbox modem --noinput
+      - name: Run JavaScript tests
+        run: node --test tests/device_settings.test.cjs
+      - name: Audit pinned runtime dependencies
+        run: python -m pip_audit --disable-pip --no-deps -r requirements.txt
+      - name: Scan Git history for secrets
+        shell: bash
+        run: |
+          archive="$RUNNER_TEMP/gitleaks.tar.gz"
+          curl --fail --silent --show-error --location \
+            https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz \
+            --output "$archive"
+          echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  $archive" | sha256sum --check
+          tar -xzf "$archive" -C "$RUNNER_TEMP" gitleaks
+          "$RUNNER_TEMP/gitleaks" git --redact=100 --no-banner --log-opts=--all .
+      - name: Validate deployment Compose files
+        run: |
+          docker compose --env-file /dev/null -f compose.ghcr.yaml config --quiet
+          docker compose --env-file /dev/null -f docs/compose.nas.yaml config --quiet
+      - name: Build Docker image
+        run: docker build --tag unifi-sms:ci .

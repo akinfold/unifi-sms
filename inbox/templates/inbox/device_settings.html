@@ -17,7 +17,7 @@
     <ol>
       <li {% if step == 'address' %}aria-current="step"{% endif %}>1. Address</li>
       <li {% if step == 'access' %}aria-current="step"{% endif %}>2. Access</li>
-      <li {% if step == 'verify' %}aria-current="step"{% endif %}>3. Verify</li>
+      <li {% if step == 'verify' or step == 'host-key' %}aria-current="step"{% endif %}>3. Verify</li>
       <li {% if step == 'trust' %}aria-current="step"{% endif %}>4. Trust</li>
     </ol>
   </nav>
@@ -99,7 +99,7 @@
       </form>
 
     {% elif step == 'verify' %}
-      <div class="wizard-heading"><div><div class="eyebrow">STEP 3 OF 4</div><h2 id="wizard-title">Check the connection</h2><p class="section-help">The app will read the device identity. SMS imports begin only after you approve that identity.</p></div></div>
+      <div class="wizard-heading"><div><div class="eyebrow">STEP 3 OF 4</div><h2 id="wizard-title">Check the connection</h2><p class="section-help">First inspect the SSH fingerprint without signing in. After you confirm the key, the app will authenticate and read the device identity. SMS imports begin after the final approval.</p></div></div>
       <dl class="device-facts">
         <div><dt>Address</dt><dd>{{ draft.host }}:{{ draft.port }}</dd></div>
         <div><dt>SSH username</dt><dd>{{ draft.username }}</dd></div>
@@ -109,6 +109,17 @@
         {% include 'inbox/device_public_key.html' %}
       {% endif %}
       <form method="post" action="{% url 'device-settings' %}">{% csrf_token %}<div class="wizard-actions"><button class="primary wizard-primary" type="submit" name="action" value="check">Check connection</button><button class="wizard-quiet" type="submit" name="action" value="edit-access">Edit access</button><button class="wizard-quiet" type="submit" name="action" value="change-address">Change address</button><button class="wizard-quiet" type="submit" name="action" value="cancel">Cancel</button></div></form>
+
+    {% elif step == 'host-key' %}
+      <div class="wizard-heading"><div><div class="eyebrow">STEP 3 OF 4</div><h2 id="wizard-title">Verify the SSH fingerprint</h2><p class="section-help">No SSH credentials have been sent. Compare this fingerprint with the device through a trusted administration channel before continuing.</p></div></div>
+      <dl class="device-facts">
+        <div><dt>Address</dt><dd>{{ probe.address }}:{{ draft.port }}</dd></div>
+        <div><dt>Key type</dt><dd>{{ probe.key_type }}</dd></div>
+        <div class="device-facts-wide"><dt>SSH fingerprint</dt><dd class="fingerprint">{{ probe.fingerprint }}</dd></div>
+      </dl>
+      {% if active.host == draft.host and active.port == draft.port and active.fingerprint and active.fingerprint != probe.fingerprint %}<div class="settings-alert form-errors" role="alert"><strong>The device key has changed.</strong><p>Previously trusted: <code>{{ active.fingerprint }}</code></p><p>Confirm the replacement with your device administrator before sending credentials.</p></div>{% endif %}
+      <div class="settings-alert notice" role="note">Continue only if you recognize this device. The next check sends your SSH credentials using this exact host key. The saved connection stays unchanged until you approve the device details.</div>
+      <form method="post" action="{% url 'device-settings' %}">{% csrf_token %}<input type="hidden" name="probe_id" value="{{ probe_id }}"><div class="wizard-actions"><button class="primary wizard-primary" type="submit" name="action" value="confirm-host">Confirm fingerprint and check access</button><button class="wizard-quiet" type="submit" name="action" value="edit-access">Edit access</button><button class="wizard-quiet" type="submit" name="action" value="cancel">Reject and cancel</button></div></form>
 
     {% elif step == 'trust' %}
       <div class="wizard-heading"><div><div class="eyebrow">STEP 4 OF 4</div><h2 id="wizard-title">Confirm this device</h2><p class="section-help">Compare this identity with the device in a trusted administration console. Approve it only when the address and SSH fingerprint match the device you intend to connect.</p></div></div>
@@ -121,7 +132,7 @@
         <div class="device-facts-wide"><dt>Phone numbers</dt><dd>{% for number in probe.numbers %}<span class="wizard-phone">{{ number }}</span>{% empty %}Not available{% endfor %}</dd></div>
       </dl>
       {% if active.host == draft.host and active.port == draft.port and active.fingerprint and active.fingerprint != probe.fingerprint %}<div class="settings-alert form-errors" role="alert"><strong>The device key has changed.</strong><p>Previously trusted: <code>{{ active.fingerprint }}</code></p><p>Proposed key: <code>{{ probe.fingerprint }}</code></p><p>Confirm this change with your device administrator before trusting it.</p></div>{% endif %}
-      <div class="settings-alert notice" role="note">This is an identity reported by a connection that has not been trusted yet. Verify the fingerprint independently with your device administrator before approving it.</div>
+      <div class="settings-alert notice" role="note">The device identity was read using the SSH key you confirmed. Approve these details to save the connection and start imports.</div>
       <form method="post" action="{% url 'device-settings' %}">{% csrf_token %}<input type="hidden" name="probe_id" value="{{ probe_id }}"><div class="wizard-actions"><button class="primary wizard-primary" type="submit" name="action" value="trust">Trust device and start imports</button><button class="wizard-quiet" type="submit" name="action" value="edit-access">Edit access</button><button class="wizard-quiet" type="submit" name="action" value="cancel">Reject and cancel</button></div></form>
     {% endif %}
   </section>
