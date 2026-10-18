@@ -16,7 +16,12 @@ The Docker image includes the web application and background importer. No extern
 
 ## Quick start with Docker Compose
 
-The image is public: **no GitHub account, token, or source checkout is needed**. This example uses release `0.1.1` and stores application data in a persistent Docker volume.
+Release `0.1.1` is public in both registries: **no registry account, token, or source checkout is needed**. Both images support Linux AMD64 and ARM64. This example stores application data in a persistent Docker volume.
+
+| Registry | Image |
+| --- | --- |
+| [GitHub Container Registry (GHCR)](https://github.com/users/akinfold/packages/container/package/unifi-sms) | `ghcr.io/akinfold/unifi-sms:0.1.1` |
+| [Docker Hub](https://hub.docker.com/r/akinfold/unifi-sms/tags) | `docker.io/akinfold/unifi-sms:0.1.1` |
 
 ### 1. Create the Compose file
 
@@ -54,6 +59,14 @@ services:
 volumes:
   sms-data:
 ```
+
+The Compose example uses GHCR. To use Docker Hub, replace only the `image:` line:
+
+```yaml
+    image: docker.io/akinfold/unifi-sms:${IMAGE_TAG:-0.1.1}
+```
+
+Keep the `compose.ghcr.yaml` filename and use the same commands below with either registry. Keep the data volume and other settings unchanged when switching registries.
 
 ### 2. Start the service
 
@@ -125,7 +138,7 @@ docker compose -f compose.ghcr.yaml up -d
 docker compose -f compose.ghcr.yaml ps
 ```
 
-Available tags are listed on the [container package page](https://github.com/users/akinfold/packages/container/package/unifi-sms). Version tags keep upgrades explicit; `latest` can change between pulls.
+Available tags are listed on [GHCR](https://github.com/users/akinfold/packages/container/package/unifi-sms) and [Docker Hub](https://hub.docker.com/r/akinfold/unifi-sms/tags). Version tags keep upgrades explicit; `latest` can change between pulls.
 
 To reset an existing administrator's password, replace `ADMIN_USERNAME` and run:
 
@@ -153,6 +166,7 @@ For HTTPS, follow the [reverse-proxy instructions](docs/nas-maintenance.md#optio
 
 | Symptom | First check |
 | --- | --- |
+| Image download fails | Check DNS and outbound HTTPS to the selected registry, or switch the `image:` line to the other registry. Both images are public. |
 | Device search finds nothing | Enter the device IP manually; check SSH access and routing from the Docker host. |
 | SSH authentication fails | Use the managed device's SSH credentials and confirm any public key has been applied. |
 | SSH host key changed | Verify the replacement independently, then approve it through the device wizard. |

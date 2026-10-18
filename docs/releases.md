@@ -52,11 +52,11 @@ Uploads to separate registries are not atomic. If one upload succeeds and the ot
 
 ## Verify installation access
 
-After a successful publication, replace the example Docker Hub namespace and version below with the run summary values:
+The public images are `ghcr.io/akinfold/unifi-sms` and `docker.io/akinfold/unifi-sms`. After a successful publication, replace the example version below with the run summary value. For a fork, also use the image names from that summary:
 
 ```sh
 docker buildx imagetools inspect ghcr.io/akinfold/unifi-sms:0.2.0
-docker buildx imagetools inspect example/unifi-sms:0.2.0
+docker buildx imagetools inspect docker.io/akinfold/unifi-sms:0.2.0
 ```
 
-Both should list `linux/amd64` and `linux/arm64`. To check anonymous installation, pull each version from a host that is not logged in to either registry. To use Docker Hub with the existing Compose file, replace only the `image:` value with `YOUR_NAMESPACE/unifi-sms:VERSION`; keep the data volume and application settings.
+Both should list `linux/amd64` and `linux/arm64`. To check anonymous installation, pull each version from a host that is not logged in to either registry. To use Docker Hub with the existing Compose file, replace only the `image:` value with `docker.io/akinfold/unifi-sms:VERSION`; keep the data volume and application settings.
