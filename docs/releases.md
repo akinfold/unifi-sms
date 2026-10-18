@@ -2,7 +2,7 @@
 
 The [Publish release images workflow](../.github/workflows/release.yml) builds one image for **Linux AMD64 and ARM64** and publishes it to GHCR and Docker Hub when a GitHub release is published. Draft releases and ordinary pushes do not publish images.
 
-Every release runs the existing CI checks against the exact tagged commit before building. Registry credentials are used only in the publishing job. Actions are pinned to commit SHAs and updated by Dependabot.
+Every release runs the existing CI checks against the exact tagged commit before building. Release builds use registry credentials only in the publishing job. Actions are pinned to commit SHAs and updated by Dependabot.
 
 ## Configure the registries once
 
@@ -18,7 +18,7 @@ Every release runs the existing CI checks against the exact tagged commit before
    | Secrets | `DOCKERHUB_TOKEN` | The Docker Hub access token. |
    | Variables (optional) | `DOCKERHUB_IMAGE` | A complete lowercase `namespace/repository`, such as `example-org/unifi-sms`. Defaults to `DOCKERHUB_USERNAME/unifi-sms`. |
 
-If you already configured a **Read & Write** token, replace the `DOCKERHUB_TOKEN` secret with a **Read, Write, Delete** token before the next publication. No additional Actions secret is needed.
+If you already configured a **Read & Write** token, replace the `DOCKERHUB_TOKEN` secret with a **Read, Write, Delete** token before the next image publication or description update. No additional Actions secret is needed.
 
 For an organization repository, the token's account must have **Admin** permission to update its description. Set `DOCKERHUB_IMAGE` to the organization's repository while keeping the login account in `DOCKERHUB_USERNAME`. Store the token only as an Actions secret; do not add it to source files, Compose, `.env.example`, or workflow inputs.
 
@@ -32,6 +32,16 @@ If the package already exists from a manual push, open its **Package settings �
 
 Check package visibility separately: a public source repository does not make every existing container package public. Set a new GHCR package to **Public** once if anonymous installation is required. The workflow does not change registry visibility.
 
+## Update the Docker Hub description
+
+The [Update Docker Hub description workflow](../.github/workflows/dockerhub-description.yml) updates the repository's full description whenever `README.md` or that workflow changes on `main`. It uses the latest README from the default branch and converts relative Markdown links to GitHub URLs.
+
+This workflow uses the Docker Hub settings above and does not build or push images. README-only pushes and pull requests also skip the CI workflow, which includes a Docker build. Image releases do not update the description, so rebuilding an older release cannot overwrite it with an older README.
+
+To update the description manually, open **Actions → Update Docker Hub description → Run workflow**, select `main`, and run it. Manual runs from other branches are skipped.
+
+If an update fails, check that `DOCKERHUB_TOKEN` has **Read, Write, Delete** permission and that its account can administer the Docker Hub repository. Retry this workflow after fixing access; no release or image rebuild is needed.
+
 ## Publish a release
 
 1. Merge the release source into the default branch and wait for CI to pass. Update version references in deployment examples and documentation when preparing a new version.
@@ -41,10 +51,6 @@ Check package visibility separately: a public source repository does not make ev
 5. Check the run summary for image names, source commit, digest, and platforms. The workflow checks that both registries return the build's digest with AMD64 and ARM64 manifests.
 
 For release `v0.2.0`, the workflow publishes `0.2.0` and `sha-FULL_COMMIT_SHA` to both registries. It updates `latest` only when GitHub identifies that release as the latest stable release. Prereleases receive their full version tag, such as `0.2.0-rc.1`, and never update `latest`. Rebuilding an older release also leaves `latest` unchanged.
-
-After publishing and verifying the current stable release, the workflow also updates the Docker Hub repository's full description from `README.md` at the validated release commit. Relative Markdown links are converted to GitHub URLs so installation guides remain accessible from Docker Hub. Prereleases, older releases, and build-only runs do not change the description.
-
-If the description update fails, the workflow fails even though the images may already be available. Check the Docker Hub token's permissions and repository access, then retry the release. README-only pushes do not update Docker Hub; the updated text is published with the next stable release.
 
 Do not move a published release tag. A retry rebuilds the same source commit, but a changed base image can produce a different digest. Use a new version for source changes.
 

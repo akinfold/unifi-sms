@@ -246,15 +246,6 @@ jobs:
             actual_digest=$(docker buildx imagetools inspect "$image:latest" --format '{{.Manifest.Digest}}')
             test "$actual_digest" = "$IMAGE_DIGEST"
           done
-      - name: Update Docker Hub description from the release README
-        if: env.PUBLISH_IMAGES == 'true' && steps.latest.outputs.promote == 'true'
-        uses: peter-evans/dockerhub-description@1b9a80c056b620d92cedb9d9b5a223409c68ddfa # v5.0.0
-        with:
-          username: ${{ vars.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-          repository: ${{ env.DOCKERHUB_IMAGE }}
-          readme-filepath: ./README.md
-          enable-url-completion: true
       - name: Summarize build
         env:
           IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
