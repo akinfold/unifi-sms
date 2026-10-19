@@ -1,143 +1,103 @@
 # UniFi SMS
 
-Archive incoming SMS from a UniFi LTE Pro and free its message slots after saving them to SQLite. Browse, search, read, and delete messages in an administrator-only web inbox, with optional email forwarding.
+A private SMS inbox for your UniFi LTE Pro. Keep a searchable archive, forward new messages to email, and free the device's SMS slots automatically — from one Docker container.
 
-The Docker image includes the web application and background importer. No external database or additional services are required.
+[![CI](https://github.com/akinfold/unifi-sms/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/akinfold/unifi-sms/actions/workflows/ci.yml)
+[![GitHub release](https://img.shields.io/github/v/release/akinfold/unifi-sms?logo=github)](https://github.com/akinfold/unifi-sms/releases/latest)
+[![Docker Hub pulls](https://img.shields.io/docker/pulls/akinfold/unifi-sms?logo=docker&logoColor=white)](https://hub.docker.com/r/akinfold/unifi-sms)
+[![Platforms: AMD64 and ARM64](https://img.shields.io/badge/platforms-linux%2Famd64%20%7C%20linux%2Farm64-blue?logo=docker&logoColor=white)](https://hub.docker.com/r/akinfold/unifi-sms/tags)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-**Installing on a NAS?** Follow the [Synology guide](docs/install-synology.md) or [UGREEN guide](docs/install-ugreen.md) for installation through the NAS web interface.
+**Install the image, create your administrator, and connect your LTE Pro in the guided web setup.** No external database, source checkout, or registry account required.
 
-**Security update:** Release `0.1.1` verifies the SSH host key before sending credentials and upgrades Paramiko to 5.0.0. Upgrade from `0.1.0` to use this connection flow. Devices that only support SHA-1 SSH algorithms require a firmware or SSH configuration update; see the [security policy](SECURITY.md#supported-versions).
+- **Keep the messages, free the slots.** SMS are saved to a local SQLite archive before their copies are removed from the device.
+- **Find what you need.** Search your inbox, check received dates, read a message, or delete selected messages from the archive.
+- **Get new SMS by email.** Optional SMTP forwarding brings new messages to your existing inbox, with a test-email button to check your settings.
+- **Set up SSH in the browser.** Find the device or enter its address, use a password or SSH key, and approve its fingerprint. The wizard can generate a key and explain how to add it to UniFi Network.
+- **Run it on your server or NAS.** The web application and background importer share one container and one persistent data volume.
 
-## Before you start
+## Choose your installation
 
-- Install Docker with the `docker compose` command on the destination host. The published image supports **Linux AMD64 and ARM64**; 32-bit ARM is not supported.
-- Ensure the container can reach the LTE Pro over SSH. Obtain the device's SSH username and password, or access to UniFi Network to add an SSH public key. The device's SSH account may differ from your UniFi web login.
-- Use one UniFi SMS instance per device. Imported messages are removed from the device, so keep backups of the archive.
+| Where you want to run it | Start here |
+| --- | --- |
+| A computer or server with Docker Compose | [Quick start below](#quick-start-with-docker-compose) |
+| Synology NAS with Container Manager | [Synology installation guide](docs/install-synology.md) |
+| UGREEN NAS with the Docker app | [UGREEN installation guide](docs/install-ugreen.md) |
+
+The images support **Linux AMD64 and ARM64**. NAS support depends on the model and available container apps; see the guides for requirements. 32-bit ARM is not supported.
 
 ## Quick start with Docker Compose
 
-The image is public: **no GitHub account, token, or source checkout is needed**. This example uses release `0.1.1` and stores application data in a persistent Docker volume.
+You need Docker Compose and a UniFi LTE Pro reachable from the container over SSH. Have the **device's SSH credentials** ready, or access to UniFi Network to add a public key. These may differ from your UniFi web login. Use one UniFi SMS instance per device.
 
-### 1. Create the Compose file
+### 1. Start the container
 
-On the Docker host, create a deployment folder:
+Run on the Docker host:
 
 ```sh
 mkdir -p unifi-sms
 cd unifi-sms
+curl -fsSL https://raw.githubusercontent.com/akinfold/unifi-sms/v0.1.1/compose.ghcr.yaml -o compose.yaml
+docker compose up -d
 ```
 
-Save the following as **`compose.ghcr.yaml`** in that folder. It matches the [supplied Compose file](compose.ghcr.yaml).
+This downloads the release Compose file and starts the public `0.1.1` image from GHCR. Docker downloads the image automatically. Prefer Docker Hub? [Switch the image below](#choose-your-registry).
+
+### 2. Create your administrator
+
+Open **[http://localhost:8080](http://localhost:8080)** on the computer running Docker. On a remote server, [open an SSH tunnel or enable LAN access](#access-from-another-computer) first.
+
+Choose an application username and a password of at least **8 characters**. Common or entirely numeric passwords are rejected. There is no default login or setup token; registration closes after the first administrator is created.
+
+### 3. Connect your LTE Pro
+
+The connection wizard opens automatically:
+
+1. Select **Search local network** or enter the device's IP address or hostname. If discovery finds nothing, enter the address manually.
+2. Enter the SSH port and device username, then choose a password or private key. You can paste your key or select **Generate SSH key** and follow the instructions to add its public part to UniFi Network.
+3. Select **Check connection**. Verify the displayed fingerprint through a trusted device console or administrator, then select **Confirm fingerprint and check access**.
+4. Review the device information and select **Trust device and start imports**. The application saves the trusted host key and checks it on future connections — no manual `known_hosts` file needed.
+
+**Your inbox is ready.** The importer checks for SMS about once a minute. The inbox shows its status, received dates, device address and model, and the SIM phone number when available. Use **Update from device** to refresh device information.
+
+Need help finding SSH credentials or adding a key? Follow the [step-by-step first-launch guide](docs/nas-first-run.md). To change the connection later, open **Settings → Device → Change device connection**.
+
+## Choose your registry
+
+Both images are public and support the same architectures. No registry login is needed.
+
+| Registry | Image |
+| --- | --- |
+| [GitHub Container Registry](https://github.com/users/akinfold/packages/container/package/unifi-sms) | `ghcr.io/akinfold/unifi-sms:0.1.1` |
+| [Docker Hub](https://hub.docker.com/r/akinfold/unifi-sms) | `docker.io/akinfold/unifi-sms:0.1.1` |
+
+To use Docker Hub, replace the `image:` line in `compose.yaml` with:
 
 ```yaml
-name: unifi-sms
-services:
-  app:
-    image: ghcr.io/akinfold/unifi-sms:${IMAGE_TAG:-0.1.1}
-    container_name: unifi-sms-app
-    restart: unless-stopped
-    ports:
-      - "${BIND_ADDRESS:-127.0.0.1}:${PORT:-8080}:8000"
-    environment:
-      DATA_DIR: /data
-      ALLOWED_HOSTS: "${ALLOWED_HOSTS:-localhost,127.0.0.1,[::1]}"
-      CSRF_TRUSTED_ORIGINS: "${CSRF_TRUSTED_ORIGINS:-}"
-      REQUIRE_HTTPS: "${REQUIRE_HTTPS:-0}"
-      TRUST_PROXY: "${TRUST_PROXY:-0}"
-    volumes:
-      - sms-data:/data
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    stop_grace_period: 45s
-volumes:
-  sms-data:
+    image: docker.io/akinfold/unifi-sms:${IMAGE_TAG:-0.1.1}
 ```
 
-### 2. Start the service
+Run `docker compose up -d` again. Keep the same Compose project and data volume when switching registries.
 
-Run these commands from the deployment folder:
+## Forward new SMS to email
 
-```sh
-docker compose -f compose.ghcr.yaml pull
-docker compose -f compose.ghcr.yaml up -d
-docker compose -f compose.ghcr.yaml ps
-```
+Open **Settings → Email forwarding**, enter your SMTP settings, sender, and recipients, then select **Send test email**. Once the test arrives, select **Enable email forwarding** and **Save settings**.
 
-The container is named `unifi-sms-app`. Wait for it to report **healthy**. If it exits or remains unhealthy, inspect its logs:
+The test uses the current form values without saving them; leave the password blank to use the saved password. New, complete messages are queued while forwarding is enabled. Existing messages are not sent retroactively. Failed deliveries are retried without blocking archiving; see [email delivery behavior](docs/behavior.md#email-delivery) for details.
 
-```sh
-docker compose -f compose.ghcr.yaml logs --tail=100 app
-```
+Device access and SMTP are configured in the web interface. No connection settings are needed in `.env`; legacy `LTE_*` and `SMTP_*` variables are ignored.
 
-### 3. Open the application and create an administrator
+## Access from another computer
 
-If Docker runs on your computer, open [http://localhost:8080](http://localhost:8080).
-
-If Docker runs on another server, run this command **on your computer**, replacing `USER` and `SERVER` with the server's SSH account and address. Keep the tunnel open while using the application:
+The supplied Compose file listens only on the Docker host's loopback interface. For a remote server, the quickest way to complete setup is an SSH tunnel. Run this **on your computer**, replacing `USER` and `SERVER` with the server's SSH account and address:
 
 ```sh
 ssh -N -L 8080:127.0.0.1:8080 USER@SERVER
 ```
 
-Then open [http://localhost:8080](http://localhost:8080). The default configuration listens only on the Docker host's loopback interface.
+Keep the tunnel open and visit [http://localhost:8080](http://localhost:8080).
 
-On **Create administrator**, choose an application username and a password of at least **8 characters**. Common or entirely numeric passwords are rejected. There is no default account or setup token. Account creation closes after the first administrator is registered.
-
-For direct access through a LAN address instead of a tunnel, see [LAN and HTTPS access](#lan-and-https-access).
-
-## Connect the LTE Pro
-
-The device wizard opens automatically when no device is configured. You can also open **Settings → Device**.
-
-1. Enter the device's IP address or hostname, or select **Search local network**. If search finds nothing, enter the address manually; Docker networking can limit discovery. For a different subnet, use **LAN subnet** with a private IPv4 network of at most 256 addresses, such as `10.20.30.0/24`.
-2. Enter the SSH port, usually `22`, and the **device's SSH username**. Choose password or private-key authentication. For a key, paste an unencrypted private key or select **Generate SSH key**. Add the generated **public** key in UniFi Network using the wizard's instructions before continuing. See the [first-launch guide](docs/nas-first-run.md#step-3--obtain-the-devices-ssh-account) for credential and key instructions.
-3. Select **Check connection** to read the host key without authenticating. Verify its SSH fingerprint through a trusted device console or administrator, then choose **Confirm fingerprint and check access**. The application authenticates using that key and reads the model, name, and SIM phone number when available.
-4. Select **Trust device and start imports**. The application saves the host key automatically and checks it on later connections; you do not need to prepare a `known_hosts` file.
-
-The worker scans for SMS about once a minute. Check the importer status in the inbox to confirm it is working. The inbox shows received dates, the device address and model, and the SIM phone number when available. **Update from device** refreshes device information. Some SIM cards do not report their number; this does not prevent SMS import.
-
-To change devices or credentials, select **Settings → Device → Change device connection**. The current connection stays active until the replacement is checked and trusted.
-
-## Set up optional email forwarding
-
-1. Open **Settings → Email forwarding**.
-2. Enter your provider's SMTP host, port, encryption mode, login details, sender, and recipients. Match the provider's requirements; STARTTLS commonly uses port `587`, while implicit TLS uses `465`.
-3. Select **Send test email** and check the recipient inbox. The test uses the current form values without saving them; a blank password uses the saved password.
-4. Select **Enable email forwarding**, then **Save settings**.
-
-Only new, complete SMS messages are queued while forwarding is enabled; existing messages are not forwarded retroactively. Failed deliveries are retried without blocking SMS archiving. See [email delivery behavior](docs/behavior.md#email-delivery) for retry and duplicate-delivery limits.
-
-**Device access and SMTP are configured in the web interface.** Legacy `LTE_*` and `SMTP_*` environment variables are ignored.
-
-## Keep data and update the service
-
-The volume **`unifi-sms_sms-data`**, mounted at `/data`, contains the SMS database, administrator accounts, saved credentials, trusted host keys, and persistent application secret. Keep the entire volume when replacing the container. `docker compose -f compose.ghcr.yaml down` preserves it; adding **`-v` deletes it**.
-
-Before an upgrade, make a [complete backup](docs/nas-maintenance.md#back-up-the-complete-data-volume). The backup and restore commands also apply to this Docker installation. Copying the Compose file or exporting the image does not back up the data. Protect backups as secrets and keep `secret-key` with the database so saved device credentials remain usable.
-
-To upgrade, set `IMAGE_TAG` to the desired published version in a `.env` file beside `compose.ghcr.yaml`, then run:
-
-```sh
-docker compose -f compose.ghcr.yaml pull
-docker compose -f compose.ghcr.yaml up -d
-docker compose -f compose.ghcr.yaml ps
-```
-
-Available tags are listed on the [container package page](https://github.com/users/akinfold/packages/container/package/unifi-sms). Version tags keep upgrades explicit; `latest` can change between pulls.
-
-To reset an existing administrator's password, replace `ADMIN_USERNAME` and run:
-
-```sh
-docker compose -f compose.ghcr.yaml exec app python manage.py changepassword ADMIN_USERNAME
-```
-
-## LAN and HTTPS access
-
-Before an administrator exists, anyone who can reach setup can create that first account. Complete setup before sharing access.
-
-For LAN access, create or edit `.env` beside `compose.ghcr.yaml`. Replace the example IP with an address assigned to the Docker host:
+For direct LAN access, create `.env` beside `compose.yaml`. Replace the example IP with an address assigned to the **Docker host**:
 
 ```dotenv
 BIND_ADDRESS=10.20.30.10
@@ -145,28 +105,50 @@ PORT=8080
 ALLOWED_HOSTS=10.20.30.10,localhost,127.0.0.1
 ```
 
-Run `docker compose -f compose.ghcr.yaml up -d` again and open `http://10.20.30.10:8080` using your actual address. Allow the chosen port through the host firewall only for intended clients.
+Run `docker compose up -d` again, then open `http://10.20.30.10:8080` using your actual address. Restrict access to intended clients. **Complete administrator setup before sharing access:** anyone who can reach an unconfigured instance can create its first administrator.
 
-For HTTPS, follow the [reverse-proxy instructions](docs/nas-maintenance.md#optional-https-access). Set `REQUIRE_HTTPS=1`, `TRUST_PROXY=1`, and `CSRF_TRUSTED_ORIGINS` only after configuring a trusted HTTPS proxy and restricting direct backend access. `ALLOWED_HOSTS` takes hostnames or IP addresses without schemes or ports; `CSRF_TRUSTED_ORIGINS` takes full origins such as `https://sms.example.com`.
+For HTTPS, follow the [reverse-proxy guide](docs/nas-maintenance.md#optional-https-access). It covers the required proxy and application settings.
+
+## Keep your archive and stay up to date
+
+**Imported SMS are removed from the LTE Pro, so back up the archive.** The `unifi-sms_sms-data` volume contains the database, accounts, credentials, trusted host keys, and application secret. Back up the **entire volume** and protect backups as secrets; see [backup and restore](docs/nas-maintenance.md#back-up-the-complete-data-volume).
+
+Replacing the container preserves this volume. `docker compose down` preserves it too; **`docker compose down -v` deletes it**.
+
+To upgrade, back up first, then set `IMAGE_TAG` to the desired published version in `.env` beside `compose.yaml` and run:
+
+```sh
+docker compose pull
+docker compose up -d
+```
+
+Choose a version from [GitHub releases](https://github.com/akinfold/unifi-sms/releases) or [Docker Hub tags](https://hub.docker.com/r/akinfold/unifi-sms/tags). Version tags make upgrades explicit; `latest` can change between pulls.
+
+Upgrading from `0.1.0`? Release `0.1.1` verifies the SSH host key before sending credentials. Devices limited to SHA-1 SSH algorithms need a firmware or SSH configuration update; see the [security policy](SECURITY.md#supported-versions).
 
 ## Troubleshooting
 
-| Symptom | First check |
+Check the container with `docker compose ps`. For startup errors, run `docker compose logs --tail=100 app`.
+
+| What you see | What to do |
 | --- | --- |
-| Device search finds nothing | Enter the device IP manually; check SSH access and routing from the Docker host. |
-| SSH authentication fails | Use the managed device's SSH credentials and confirm any public key has been applied. |
-| SSH host key changed | Verify the replacement independently, then approve it through the device wizard. |
-| HTTP 400 / DisallowedHost | Add the browser's hostname or IP to `ALLOWED_HOSTS` and recreate the container. |
-| Healthy container, but no SMS | Check importer status in the inbox. Container health checks the web service and database, not device connectivity. |
-| A SIM number is unavailable | Some SIM cards do not store a phone number. SMS import can still work. |
+| Image download fails | Check DNS and outbound HTTPS, or switch to the other public registry. |
+| Device search finds nothing | Enter its address manually. Discovery can be limited by Docker networking; check SSH access from the Docker host. |
+| SSH authentication fails | Use the device's SSH account and confirm that any public key has been applied. See the [SSH setup guide](docs/nas-first-run.md#step-3--obtain-the-devices-ssh-account). |
+| SSH host key changed | Verify the new fingerprint independently, then approve it in the device wizard. |
+| HTTP 400 / DisallowedHost | Add the browser's hostname or IP to `ALLOWED_HOSTS`, then run `docker compose up -d`. |
+| Container is healthy, but no SMS appear | Check importer status in the inbox. Container health checks the web service and database, not the device connection. |
+| SIM phone number is missing | Some SIM cards do not store their number. SMS import still works. |
 
-## More documentation
+## Documentation and support
 
-- [First launch and SSH-key setup](docs/nas-first-run.md)
-- [Backups, migration, upgrades, HTTPS, and troubleshooting](docs/nas-maintenance.md)
-- [Discovery, credentials, SMS cleanup, and email delivery behavior](docs/behavior.md)
-- [Source builds, local development, and validation](docs/development.md)
+- [First launch, SSH credentials, and key setup](docs/nas-first-run.md)
+- [Backups, migration, upgrades, HTTPS, and password recovery](docs/nas-maintenance.md)
+- [Discovery, SMS cleanup, and email delivery: behavior and limits](docs/behavior.md)
+- [Source builds, development, and validation](docs/development.md)
+- [Release publishing and registry descriptions](docs/releases.md)
+- [Report a bug or suggest a feature](https://github.com/akinfold/unifi-sms/issues)
 
-## Contributing and security
+Contributions are welcome — see [Contributing](CONTRIBUTING.md). Report vulnerabilities privately using the [Security policy](SECURITY.md).
 
-See [Contributing](CONTRIBUTING.md) for development and pull requests, and the [Security policy](SECURITY.md) for private vulnerability reports and deployment boundaries. This project is distributed under the [MIT License](LICENSE). It is not affiliated with or endorsed by Ubiquiti.
+Released under the [MIT License](LICENSE). UniFi SMS is an independent project, not affiliated with or endorsed by Ubiquiti.

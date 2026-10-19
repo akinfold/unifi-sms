@@ -1,6 +1,6 @@
 # How to install UniFi SMS on a Synology NAS
 
-Archive SMS from a UniFi LTE Pro on your NAS, read them in a browser, and optionally forward new messages by email. This guide uses the published Docker image and Synology Container Manager. No source checkout, Portainer, GitHub login, or separate database is required.
+Archive SMS from a UniFi LTE Pro on your NAS, read them in a browser, and optionally forward new messages by email. This guide uses the published Docker image and Synology Container Manager. No source checkout, Portainer, registry login, or separate database is required.
 
 **Applies to:** DSM 7.2 or later, on a NAS that offers Container Manager and can run Linux AMD64 or ARM64 containers. The image does not support 32-bit ARM. Menu labels can vary by DSM and package version.
 
@@ -12,7 +12,7 @@ Have these ready:
 
 - A DSM administrator account and a storage volume with free space.
 - The NAS's LAN IP address, preferably kept stable with a DHCP reservation.
-- Internet access from the NAS to pull the public image from GitHub Container Registry.
+- Internet access from the NAS to pull the public image from GitHub Container Registry (GHCR) or Docker Hub.
 - Network access from the NAS to the LTE Pro's SSH port, usually TCP 22.
 - Access to the UniFi Network application that manages the device, so you can obtain its SSH credentials or install a public key.
 
@@ -71,8 +71,16 @@ Before deploying, replace **both occurrences of `10.20.30.10`** with your NAS's 
 | --- | --- |
 | `10.20.30.10:8080:8000` | Your NAS IP, the browser port, and the container port. Keep the final `8000`. |
 | `ALLOWED_HOSTS` | Your NAS IP. Keep `localhost,127.0.0.1` for local health checks. Use commas without spaces; do not include `http://` or a port. |
-| `image` | Keep `ghcr.io/akinfold/unifi-sms:0.1.1` for this installation. Docker selects AMD64 or ARM64 automatically. |
+| `image` | Use the GHCR image above or the Docker Hub alternative below. Docker selects AMD64 or ARM64 automatically. |
 | `sms-data` / `name` | Keep these values for a fresh installation. They identify the persistent data volume. |
+
+The example uses [GHCR](https://github.com/users/akinfold/packages/container/package/unifi-sms). To use [Docker Hub](https://hub.docker.com/r/akinfold/unifi-sms/tags), replace only the `image:` line before deploying:
+
+```yaml
+    image: docker.io/akinfold/unifi-sms:0.1.1
+```
+
+Both registries provide the same release for Linux AMD64 and ARM64 without a login. Keep the data volume and other settings unchanged when switching registries.
 
 If port 8080 is already in use, change only its host-side value, for example to `10.20.30.10:8090:8000`, and use port 8090 in your browser.
 
@@ -114,8 +122,6 @@ The service restarts automatically when Docker starts because the Compose file u
 
 For a future upgrade, back up first, edit the image tag in **Project → Details → YAML Configurations**, and redeploy. Use the full [upgrade checklist](nas-maintenance.md#upgrade-the-image). Do not use **Clean**, delete the data volume, or run `docker compose down -v` to update the application.
 
-## Reference and validation
-
-This original tutorial uses the numbered STEP format found in [Marius Hosting's NAS guides](https://mariushosting.com/). It is not affiliated with Marius Hosting, Synology, or Ubiquiti.
+## Validation
 
 The Compose configuration, application setup labels, and backup/restore commands were checked for release `0.1.1`. Vendor interface paths were checked against official documentation on October 18, 2026. The workflow has not been tested on physical Synology hardware; check labels against your installed DSM version.
