@@ -35,7 +35,7 @@ jobs:
     steps:
       - name: Validate release and resolve its commit
         id: release
-        uses: actions/github-script@d746ffe35508b1917358783b479e04febd2b8f71 # v9.0.0
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           RELEASE_TAG: ${{ inputs.release_tag || github.event.release.tag_name }}
           DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
@@ -173,7 +173,7 @@ jobs:
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
       - name: Confirm the release tag still identifies the validated commit
         if: env.PUBLISH_IMAGES == 'true'
-        uses: actions/github-script@d746ffe35508b1917358783b479e04febd2b8f71 # v9.0.0
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
             let {data: {object}} = await github.rest.git.getRef({...context.repo, ref: `tags/${process.env.RELEASE_TAG}`});
@@ -261,7 +261,7 @@ jobs:
       - name: Check release tag and latest status
         if: env.PUBLISH_IMAGES == 'true'
         id: latest
-        uses: actions/github-script@d746ffe35508b1917358783b479e04febd2b8f71 # v9.0.0
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
             let {data: {object}} = await github.rest.git.getRef({...context.repo, ref: `tags/${process.env.RELEASE_TAG}`});
