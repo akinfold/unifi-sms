@@ -2,14 +2,23 @@ name: CI
 
 on:
   push:
+    paths-ignore:
+      - README.md
   pull_request:
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        description: Commit to validate
+        required: false
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # Keep reusable CI calls separate from their callers and other releases.
+  group: ci-${{ github.workflow }}-${{ inputs.ref && github.run_id || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -17,10 +26,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      DATA_DIR: ${{ runner.temp }}/unifi-sms-data
+      DATA_DIR: /tmp/unifi-sms-ci-data
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
+          ref: ${{ inputs.ref || github.sha }}
           fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
@@ -40,6 +50,8 @@ jobs:
         run: python -m ruff check .
       - name: Check migrations
         run: python manage.py makemigrations --check --dry-run
+      - name: Collect static assets
+        run: python manage.py collectstatic --noinput
       - name: Run Python tests
         run: python manage.py test inbox modem --noinput
       - name: Run JavaScript tests
@@ -62,3 +74,10 @@ jobs:
           docker compose --env-file /dev/null -f docs/compose.nas.yaml config --quiet
       - name: Build Docker image
         run: docker build --tag unifi-sms:ci .
+      - name: Verify fresh installation and administrator setup
+        env:
+          SMOKE_TEST_REF: ${{ github.workflow_sha }}
+        run: |
+          # Older release commits may not include the smoke test added with this workflow.
+          git show "$SMOKE_TEST_REF:scripts/smoke_install.py" > "$RUNNER_TEMP/unifi-sms-smoke-install.py"
+          python "$RUNNER_TEMP/unifi-sms-smoke-install.py" --image unifi-sms:ci
