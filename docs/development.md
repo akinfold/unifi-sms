@@ -49,12 +49,21 @@ With the Python environment above and Node.js 22 available, install the developm
 .venv/bin/python -m pip_audit --disable-pip --no-deps -r requirements.txt
 .venv/bin/python manage.py test inbox modem
 .venv/bin/python manage.py makemigrations --check --dry-run
-node --test tests/device_settings.test.cjs
+node --test tests/*.test.cjs
 docker build -t unifi-sms:ci .
 python3 scripts/smoke_install.py --image unifi-sms:ci
 ```
 
 The installation smoke test requires a running local Docker daemon. It uses a temporary container, a new named volume, and a loopback port assigned by Docker. It creates a disposable administrator through the HTTP setup form and verifies login and persistence after a restart. It removes its test resources on success or failure and leaves existing installations unchanged. CI runs this check before release publication.
+
+To test an upgrade, pull the previous stable image and pass it alongside the candidate image:
+
+```sh
+docker pull ghcr.io/akinfold/unifi-sms:0.1.2
+python3 scripts/smoke_upgrade.py --previous-image ghcr.io/akinfold/unifi-sms:0.1.2 --image unifi-sms:ci
+```
+
+The upgrade test creates synthetic data with the previous image, stops it, and starts the candidate with the same temporary volume. It checks administrator login, sessions, SMS, device and SMTP settings, encrypted credentials, and host trust. It removes both containers and the volume after the run. CI selects and verifies the previous release automatically; see the [upgrade gate](releases.md#upgrade-gate).
 
 Tests use synthetic messages and a simulated modem. They cover PDU decoding, saving before deletion, slot reuse, recovery, multipart assembly, administrator setup, authentication and CSRF, trusted connection setup, device credential encryption, SMTP settings, and forwarding retries. Legacy device and SMTP environment variables are ignored rather than overriding saved settings.
 

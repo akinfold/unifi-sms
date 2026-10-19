@@ -12,6 +12,10 @@ on:
         description: Commit to validate
         required: false
         type: string
+      target_tag:
+        description: Release being validated; select a stable upgrade source below this version
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -24,7 +28,7 @@ concurrency:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     env:
       DATA_DIR: /tmp/unifi-sms-ci-data
     steps:
@@ -55,7 +59,7 @@ jobs:
       - name: Run Python tests
         run: python manage.py test inbox modem --noinput
       - name: Run JavaScript tests
-        run: node --test tests/device_settings.test.cjs
+        run: node --test tests/*.test.cjs
       - name: Audit pinned runtime dependencies
         run: python -m pip_audit --disable-pip --no-deps -r requirements.txt
       - name: Scan Git history for secrets
@@ -74,10 +78,61 @@ jobs:
           docker compose --env-file /dev/null -f docs/compose.nas.yaml config --quiet
       - name: Build Docker image
         run: docker build --tag unifi-sms:ci .
-      - name: Verify fresh installation and administrator setup
+      - name: Load smoke tests from the workflow commit
         env:
           SMOKE_TEST_REF: ${{ github.workflow_sha }}
         run: |
-          # Older release commits may not include the smoke test added with this workflow.
-          git show "$SMOKE_TEST_REF:scripts/smoke_install.py" > "$RUNNER_TEMP/unifi-sms-smoke-install.py"
-          python "$RUNNER_TEMP/unifi-sms-smoke-install.py" --image unifi-sms:ci
+          # Older application commits may not contain the current validation scripts.
+          SMOKE_TEST_DIR="$RUNNER_TEMP/unifi-sms-smoke"
+          mkdir -p "$SMOKE_TEST_DIR"
+          git show "$SMOKE_TEST_REF:scripts/smoke_install.py" > "$SMOKE_TEST_DIR/smoke_install.py"
+          git show "$SMOKE_TEST_REF:scripts/smoke_upgrade.py" > "$SMOKE_TEST_DIR/smoke_upgrade.py"
+          git show "$SMOKE_TEST_REF:.github/scripts/previous-release.cjs" > "$SMOKE_TEST_DIR/previous-release.cjs"
+          echo "SMOKE_TEST_DIR=$SMOKE_TEST_DIR" >> "$GITHUB_ENV"
+      - name: Verify fresh installation and administrator setup
+        run: python "$SMOKE_TEST_DIR/smoke_install.py" --image unifi-sms:ci
+      - name: Select the previous stable release
+        id: previous
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          TARGET_TAG: ${{ inputs.target_tag }}
+        with:
+          script: |
+            const {previousRelease} = require(`${process.env.SMOKE_TEST_DIR}/previous-release.cjs`);
+            const releases = await github.paginate(github.rest.repos.listReleases, {
+              ...context.repo, per_page: 100,
+            });
+            const previous = previousRelease(releases, process.env.TARGET_TAG || '');
+            if (!previous) {
+              core.info('No earlier stable release exists; the first release has no upgrade source.');
+              await core.summary.addRaw('Upgrade check skipped: no earlier published stable release exists.').write();
+              return;
+            }
+            let {data: {object}} = await github.rest.git.getRef({
+              ...context.repo, ref: `tags/${previous.tag_name}`,
+            });
+            while (object.type === 'tag') {
+              ({data: {object}} = await github.rest.git.getTag({...context.repo, tag_sha: object.sha}));
+            }
+            if (object.type !== 'commit') throw new Error('The previous release tag must resolve to a commit.');
+            const image = `ghcr.io/${context.repo.owner}/${context.repo.repo}:${previous.tag_name.slice(1)}`.toLowerCase();
+            core.setOutput('image', image);
+            core.setOutput('sha', object.sha);
+            await core.summary.addHeading('Upgrade compatibility').addRaw(
+              `Source: ${previous.tag_name} (${object.sha}) → ${process.env.TARGET_TAG || 'candidate commit'}`,
+            ).write();
+      - name: Verify upgrade preserves settings, administrator, and SMS
+        if: steps.previous.outputs.image != ''
+        env:
+          PREVIOUS_IMAGE: ${{ steps.previous.outputs.image }}
+          PREVIOUS_SHA: ${{ steps.previous.outputs.sha }}
+        run: |
+          docker pull "$PREVIOUS_IMAGE"
+          revision=$(docker image inspect "$PREVIOUS_IMAGE" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')
+          if [ "$revision" != "$PREVIOUS_SHA" ]; then
+            echo '::error::The previous image revision does not match its published release tag.'
+            exit 1
+          fi
+          digest=$(docker image inspect "$PREVIOUS_IMAGE" --format '{{index .RepoDigests 0}}')
+          echo "Upgrade source image: $digest"
+          python "$SMOKE_TEST_DIR/smoke_upgrade.py" --previous-image "$digest" --image unifi-sms:ci

@@ -2,7 +2,7 @@
 
 The [Publish release images workflow](../.github/workflows/release.yml) builds one image for **Linux AMD64 and ARM64** and publishes it to GHCR and Docker Hub when a GitHub release is published. Draft releases and ordinary pushes do not publish images.
 
-Every release runs CI against the exact tagged commit before publication. CI builds a local image and tests first-run setup over HTTP with a new Docker volume. A failed check blocks publication to both registries. Release builds use registry credentials only in the publishing job. Actions are pinned to commit SHAs and updated by Dependabot.
+Every release runs CI against the exact tagged commit before publication. CI builds a local image, tests first-run setup, and verifies an upgrade from the previous stable release. A failed check blocks publication to both registries. Release builds use registry credentials only in the publishing job. Actions are pinned to commit SHAs and updated by Dependabot.
 
 ## Fresh installation gate
 
@@ -10,7 +10,17 @@ CI starts the locally built image with the deployment security options and an em
 
 This check runs in ordinary CI and release validation before either registry receives an image. It exercises the runner's native platform, Linux AMD64 in GitHub Actions; the release build still produces AMD64 and ARM64 images. It does not connect to an LTE device or SMTP server.
 
-For manual rebuilds of older releases, CI takes the smoke test from the workflow commit while building the application from the resolved release commit. The old release does not need to contain the new test script.
+## Upgrade gate
+
+CI selects the highest published stable version below the release being validated. For example, rebuilding `v0.1.2` tests an upgrade from `v0.1.1`, even if newer releases exist. A prerelease uses the previous stable version; drafts and prereleases are never upgrade sources. Ordinary branch and pull request CI uses the highest published stable release.
+
+The check pulls that version from GHCR, verifies its source revision against the release tag, and uses the downloaded image by digest. It starts the previous image with a disposable volume, creates an administrator through the setup form, and saves synthetic SMS, trusted device settings, SSH credentials, and SMTP settings using that image's Django runtime. It then stops the old container and starts the candidate image with the same volume.
+
+The candidate must preserve the administrator's password and permissions, existing session, all stored SMS fields and receipts, device and SMTP settings, encrypted SSH credentials, persistent application secret, and `known_hosts` file. The check also verifies credential decryption, SQLite integrity, a fresh administrator login, closed first-run setup, and access to the inbox and settings pages. New database columns are allowed; existing values must remain intact.
+
+Both smoke tests use separate temporary volumes and named containers, remove them after the run, and print container logs on failure. Fixture connection settings point only to the test container's loopback interface; no real device or SMTP server is contacted. The upgrade check runs on the runner's native platform, Linux AMD64 in GitHub Actions. It skips only when no earlier published stable release exists. A missing image, mismatched revision, download failure, or failed assertion blocks publication.
+
+For manual rebuilds of older releases, CI takes the smoke tests and version selector from the workflow commit while building the application from the resolved release commit. The old release does not need to contain the new scripts.
 
 ## Configure the registries once
 
