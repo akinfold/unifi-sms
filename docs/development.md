@@ -50,8 +50,11 @@ With the Python environment above and Node.js 22 available, install the developm
 .venv/bin/python manage.py test inbox modem
 .venv/bin/python manage.py makemigrations --check --dry-run
 node --test tests/device_settings.test.cjs
-docker build -t unifi-sms:0.1.1 .
+docker build -t unifi-sms:ci .
+python3 scripts/smoke_install.py --image unifi-sms:ci
 ```
+
+The installation smoke test requires a running local Docker daemon. It uses a temporary container, a new named volume, and a loopback port assigned by Docker. It creates a disposable administrator through the HTTP setup form and verifies login and persistence after a restart. It removes its test resources on success or failure and leaves existing installations unchanged. CI runs this check before release publication.
 
 Tests use synthetic messages and a simulated modem. They cover PDU decoding, saving before deletion, slot reuse, recovery, multipart assembly, administrator setup, authentication and CSRF, trusted connection setup, device credential encryption, SMTP settings, and forwarding retries. Legacy device and SMTP environment variables are ignored rather than overriding saved settings.
 

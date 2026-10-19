@@ -1,0 +1,59 @@
+name: Update Docker Hub description
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - README.md
+      - .github/workflows/dockerhub-description.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dockerhub-description-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  update:
+    name: Update description from README
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check Docker Hub configuration
+        id: config
+        env:
+          DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          DOCKERHUB_IMAGE: ${{ vars.DOCKERHUB_IMAGE }}
+        shell: bash
+        run: |
+          if [ -z "$DOCKERHUB_USERNAME" ] || [ -z "$DOCKERHUB_TOKEN" ]; then
+            echo '::error::Set the DOCKERHUB_USERNAME Actions variable and DOCKERHUB_TOKEN Actions secret. See docs/releases.md.'
+            exit 1
+          fi
+          image="$DOCKERHUB_IMAGE"
+          if [ -z "$image" ]; then
+            image="${DOCKERHUB_USERNAME}/${GITHUB_REPOSITORY#*/}"
+            image="${image,,}"
+          fi
+          if [[ ! "$image" =~ ^[a-z0-9]+([._-][a-z0-9]+)*/[a-z0-9]+([._-][a-z0-9]+)*$ ]]; then
+            echo '::error::DOCKERHUB_IMAGE must be a lowercase namespace/repository without a tag.'
+            exit 1
+          fi
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+      - name: Check out the latest default branch
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - name: Update Docker Hub description
+        uses: peter-evans/dockerhub-description@1b9a80c056b620d92cedb9d9b5a223409c68ddfa # v5.0.0
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: ${{ steps.config.outputs.image }}
+          readme-filepath: ./README.md
+          enable-url-completion: true
