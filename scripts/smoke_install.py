@@ -27,9 +27,9 @@ def require(condition, message):
         raise RuntimeError(message)
 
 
-def docker(*args, timeout=60):
+def docker(*args, timeout=60, input=None):
     result = subprocess.run(
-        ['docker', *args], capture_output=True, text=True, timeout=timeout
+        ['docker', *args], capture_output=True, text=True, timeout=timeout, input=input
     )
     if result.returncode:
         raise RuntimeError(f"docker {args[0]} failed: {result.stderr.strip()}")

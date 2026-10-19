@@ -78,11 +78,12 @@ jobs:
             core.setOutput('dockerhub_image', dockerhubImage);
 
   validate:
-    name: Validate release source and fresh installation
+    name: Validate release source, installation, and upgrade
     needs: prepare
     uses: ./.github/workflows/ci.yml
     with:
       ref: ${{ needs.prepare.outputs.sha }}
+      target_tag: ${{ needs.prepare.outputs.tag }}
 
   publish:
     name: Build and publish AMD64 and ARM64
