@@ -2,7 +2,7 @@
 
 These procedures apply to the [Synology](install-synology.md) and [UGREEN](install-ugreen.md) guides. They assume container **`unifi-sms-app`** and data volume **`unifi-sms_sms-data`**. Substitute the actual data volume name if you changed it during a restore.
 
-The commands below use GHCR. For Docker Hub, replace `ghcr.io/akinfold/unifi-sms:0.1.1` with `docker.io/akinfold/unifi-sms:0.1.1`. Both registries provide the same release without a login; keep the data volume and other settings unchanged.
+The commands below use GHCR. For Docker Hub, replace `ghcr.io/akinfold/unifi-sms:0.1.2` with `docker.io/akinfold/unifi-sms:0.1.2`. Both registries provide the same release without a login; keep the data volume and other settings unchanged.
 
 ## Open a NAS terminal when needed
 
@@ -49,7 +49,7 @@ sudo docker stop -t 45 unifi-sms-app &&
 if sudo docker run --rm --name unifi-sms-backup --user 0:0 \
   --entrypoint tar \
   --mount type=volume,source=unifi-sms_sms-data,target=/data,readonly \
-  ghcr.io/akinfold/unifi-sms:0.1.1 \
+  ghcr.io/akinfold/unifi-sms:0.1.2 \
   -czf - -C /data . > "$backup_file"; then
   sudo docker start unifi-sms-app
   if tar -tzf "$backup_file" >/dev/null; then
@@ -91,7 +91,7 @@ sudo docker volume create "$restore_volume"
 sudo docker run --rm -i --name unifi-sms-restore --user 0:0 \
   --entrypoint sh \
   --mount "type=volume,source=$restore_volume,target=/data" \
-  ghcr.io/akinfold/unifi-sms:0.1.1 \
+  ghcr.io/akinfold/unifi-sms:0.1.2 \
   -c 'test -z "$(ls -A /data)" || { echo "Restore volume is not empty" >&2; exit 1; }; tar -xzpf - -C /data && chown -R 10001:10001 /data && chmod 700 /data' \
   < "$backup_file" &&
 printf 'Restored volume: %s\n' "$restore_volume"

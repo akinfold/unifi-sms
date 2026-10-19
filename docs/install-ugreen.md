@@ -45,7 +45,7 @@ Paste the following YAML into the editor, or import [compose.nas.yaml](compose.n
 ```yaml
 services:
   app:
-    image: ghcr.io/akinfold/unifi-sms:0.1.1
+    image: ghcr.io/akinfold/unifi-sms:0.1.2
     container_name: unifi-sms-app
     restart: unless-stopped
     ports:
@@ -81,7 +81,7 @@ Before deploying, replace **both occurrences of `10.20.30.10`** with your NAS's 
 The example uses [GHCR](https://github.com/users/akinfold/packages/container/package/unifi-sms). To use [Docker Hub](https://hub.docker.com/r/akinfold/unifi-sms/tags), replace only the `image:` line before deploying:
 
 ```yaml
-    image: docker.io/akinfold/unifi-sms:0.1.1
+    image: docker.io/akinfold/unifi-sms:0.1.2
 ```
 
 Both registries provide the same release for Linux AMD64 and ARM64 without a login. Keep the data volume and other settings unchanged when switching registries.
@@ -122,7 +122,7 @@ Follow [Back up the complete data volume](nas-maintenance.md#back-up-the-complet
 
 For later configuration changes, open the project's **⋯ → Settings → Compose configuration**, edit the YAML, and select **Redeploy**. Keep the volume name unchanged during upgrades. The [upgrade checklist](nas-maintenance.md#upgrade-the-image) explains how to pull a new release and verify it.
 
-The pinned `0.1.1` tag does not advance to another version when you check for image updates. Choose a published version explicitly. Do not delete the project or its volumes as an update method.
+The pinned `0.1.2` tag does not advance to another version when you check for image updates. Choose a published version explicitly. Do not delete the project or its volumes as an update method.
 
 ## Validation
 
