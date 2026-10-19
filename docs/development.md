@@ -18,7 +18,7 @@ The source and registry Compose files identify the same deployment. Do not start
 
 ## Run locally with Python
 
-Use Python **3.12** and the pinned dependencies in `requirements.txt`. From the repository root:
+Use Python **3.14** and the pinned dependencies in `requirements.txt`. From the repository root:
 
 ```sh
 python3 -m venv .venv
