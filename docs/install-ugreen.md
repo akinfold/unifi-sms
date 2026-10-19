@@ -12,7 +12,7 @@ Have these ready:
 
 - A UGOS Pro administrator account and an initialized storage volume with free space.
 - The NAS's LAN IP address, preferably kept stable with a DHCP reservation.
-- Internet access from the NAS to GitHub Container Registry.
+- Internet access from the NAS to GitHub Container Registry (GHCR) or Docker Hub.
 - A route from the NAS to the LTE Pro's SSH port, usually TCP 22.
 - Access to the device's UniFi Network application for its SSH username, password, or public-key configuration.
 
@@ -26,7 +26,7 @@ If another UniFi SMS installation already contains your messages, follow [Restor
 
 Open **App Center**, find **Docker**, and select **Install**. Choose a storage location if prompted, then open Docker.
 
-If Docker is not offered, confirm model support with UGREEN before proceeding. The [official UGREEN Docker guide](https://ai.ugreen.com/blogs/knowledge/docker-docker-compose-ugreen-nas) covers installation and model compatibility. A GitHub account, registry token, and Portainer are unnecessary for this service.
+If Docker is not offered, confirm model support with UGREEN before proceeding. The [official UGREEN Docker guide](https://ai.ugreen.com/blogs/knowledge/docker-docker-compose-ugreen-nas) covers installation and model compatibility. A registry account, registry token, and Portainer are unnecessary for this service.
 
 ## STEP 3 — Start a Compose project
 
@@ -75,8 +75,16 @@ Before deploying, replace **both occurrences of `10.20.30.10`** with your NAS's 
 | --- | --- |
 | `10.20.30.10:8080:8000` | Your NAS IP, the browser port, and the container port. Keep the final `8000`. |
 | `ALLOWED_HOSTS` | Your NAS IP. Keep `localhost,127.0.0.1` for local health checks. Use commas without spaces; do not include `http://` or a port. |
-| `image` | Keep `ghcr.io/akinfold/unifi-sms:0.1.1` for this installation. Docker selects AMD64 or ARM64 automatically. |
+| `image` | Use the GHCR image above or the Docker Hub alternative below. Docker selects AMD64 or ARM64 automatically. |
 | `sms-data` / `name` | Keep these values for a fresh installation. They identify the persistent data volume. |
+
+The example uses [GHCR](https://github.com/users/akinfold/packages/container/package/unifi-sms). To use [Docker Hub](https://hub.docker.com/r/akinfold/unifi-sms/tags), replace only the `image:` line before deploying:
+
+```yaml
+    image: docker.io/akinfold/unifi-sms:0.1.1
+```
+
+Both registries provide the same release for Linux AMD64 and ARM64 without a login. Keep the data volume and other settings unchanged when switching registries.
 
 If port 8080 is already in use, change only its host-side value, for example to `10.20.30.10:8090:8000`, and use port 8090 in your browser.
 
@@ -116,8 +124,6 @@ For later configuration changes, open the project's **⋯ → Settings → Compo
 
 The pinned `0.1.1` tag does not advance to another version when you check for image updates. Choose a published version explicitly. Do not delete the project or its volumes as an update method.
 
-## Reference and validation
-
-This original tutorial follows the numbered STEP format used by [Marius Hosting](https://mariushosting.com/). It is not affiliated with Marius Hosting, UGREEN, or Ubiquiti.
+## Validation
 
 The Compose configuration, application setup labels, and backup/restore commands were checked for release `0.1.1`. Interface paths were checked against official UGREEN documentation on October 18, 2026. The workflow has not been tested on physical UGREEN hardware; use the equivalent controls in your installed UGOS Pro version.

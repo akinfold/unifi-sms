@@ -2,6 +2,8 @@
 
 These procedures apply to the [Synology](install-synology.md) and [UGREEN](install-ugreen.md) guides. They assume container **`unifi-sms-app`** and data volume **`unifi-sms_sms-data`**. Substitute the actual data volume name if you changed it during a restore.
 
+The commands below use GHCR. For Docker Hub, replace `ghcr.io/akinfold/unifi-sms:0.1.1` with `docker.io/akinfold/unifi-sms:0.1.1`. Both registries provide the same release without a login; keep the data volume and other settings unchanged.
+
 ## Open a NAS terminal when needed
 
 Routine installation uses the NAS web interface. Backup, restore, and password recovery below use Docker commands over SSH on the **NAS**.
@@ -113,8 +115,8 @@ Keep the old volume and backup until you have verified the restored archive. Do 
 
 ## Upgrade the image
 
-1. Confirm the desired version exists in the [public container package](https://github.com/users/akinfold/packages/container/package/unifi-sms) and read any migration requirements. Back up the complete data volume first.
-2. In the NAS project editor, replace `ghcr.io/akinfold/unifi-sms:0.1.1` with the published version you intend to install. Keep the container name, `/data` mount, and the current volume name.
+1. Confirm the desired version exists on [GHCR](https://github.com/users/akinfold/packages/container/package/unifi-sms) or [Docker Hub](https://hub.docker.com/r/akinfold/unifi-sms/tags) and read any migration requirements. Back up the complete data volume first.
+2. In the NAS project editor, update the tag in your chosen image, `ghcr.io/akinfold/unifi-sms:VERSION` or `docker.io/akinfold/unifi-sms:VERSION`. Replace `VERSION` with the published version you intend to install. Keep the container name, `/data` mount, and the current volume name.
 3. On Synology, use **Project → Details → YAML Configurations** and deploy the edited configuration. On UGREEN, use **Project → ⋯ → Settings → Compose configuration → Redeploy**. Ensure the new image is pulled and the container is recreated; a simple restart keeps the old image.
 4. Verify the container's image and health, sign in, and check the archive and next device scan.
 
@@ -172,7 +174,7 @@ Replace `ADMIN_USERNAME` with the existing UniFi SMS username and enter the new 
 | Symptom | Check |
 | --- | --- |
 | No matching image / unsupported platform | The NAS must support Linux AMD64 or ARM64 and offer a Docker package. No 32-bit ARM image is published. |
-| Image download fails | Check NAS DNS, internet access, and outbound HTTPS to GHCR. The image is public; no GitHub credentials are needed. |
+| Image download fails | Check NAS DNS, internet access, and outbound HTTPS to the selected registry. Try the other registry by changing only `image:`. GHCR and Docker Hub images are public; no registry credentials are needed. |
 | Port already allocated | Choose another host port, such as `8090`, while keeping container port `8000`. |
 | Cannot assign requested address | Replace the example IP in the port mapping with an address actually assigned to the NAS. Update it after an address change. |
 | Browser cannot connect | Confirm the container is running, the NAS IP and host port are correct, and firewall/routing rules permit the connection. |
