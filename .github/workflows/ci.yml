@@ -76,3 +76,10 @@ jobs:
           docker compose --env-file /dev/null -f docs/compose.nas.yaml config --quiet
       - name: Build Docker image
         run: docker build --tag unifi-sms:ci .
+      - name: Verify fresh installation and administrator setup
+        env:
+          SMOKE_TEST_REF: ${{ github.workflow_sha }}
+        run: |
+          # Older release commits may not include the smoke test added with this workflow.
+          git show "$SMOKE_TEST_REF:scripts/smoke_install.py" > "$RUNNER_TEMP/unifi-sms-smoke-install.py"
+          python "$RUNNER_TEMP/unifi-sms-smoke-install.py" --image unifi-sms:ci

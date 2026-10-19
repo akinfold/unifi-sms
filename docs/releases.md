@@ -2,7 +2,15 @@
 
 The [Publish release images workflow](../.github/workflows/release.yml) builds one image for **Linux AMD64 and ARM64** and publishes it to GHCR and Docker Hub when a GitHub release is published. Draft releases and ordinary pushes do not publish images.
 
-Every release runs the existing CI checks against the exact tagged commit before building. Release builds use registry credentials only in the publishing job. Actions are pinned to commit SHAs and updated by Dependabot.
+Every release runs CI against the exact tagged commit before publication. CI builds a local image and tests first-run setup over HTTP with a new Docker volume. A failed check blocks publication to both registries. Release builds use registry credentials only in the publishing job. Actions are pinned to commit SHAs and updated by Dependabot.
+
+## Fresh installation gate
+
+CI starts the locally built image with the deployment security options and an empty data volume. It waits for Docker health and checks the setup form, CSRF protection, the eight-character password minimum, administrator creation, device onboarding, logout, and login. It then restarts the container with the same volume and verifies that the administrator, authenticated session, and closed setup wizard persist. The test removes its temporary container and volume, including after a failure, and prints container logs on failure.
+
+This check runs in ordinary CI and release validation before either registry receives an image. It exercises the runner's native platform, Linux AMD64 in GitHub Actions; the release build still produces AMD64 and ARM64 images. It does not connect to an LTE device or SMTP server.
+
+For manual rebuilds of older releases, CI takes the smoke test from the workflow commit while building the application from the resolved release commit. The old release does not need to contain the new test script.
 
 ## Configure the registries once
 

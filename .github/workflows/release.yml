@@ -78,7 +78,7 @@ jobs:
             core.setOutput('dockerhub_image', dockerhubImage);
 
   validate:
-    name: Validate release source
+    name: Validate release source and fresh installation
     needs: prepare
     uses: ./.github/workflows/ci.yml
     with:
