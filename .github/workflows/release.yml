@@ -78,7 +78,7 @@ jobs:
             core.setOutput('dockerhub_image', dockerhubImage);
 
   validate:
-    name: Validate release source, installation, and upgrade
+    name: Validate release source, installation, upgrade, and SMS cycle
     needs: prepare
     uses: ./.github/workflows/ci.yml
     with:

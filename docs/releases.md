@@ -2,13 +2,25 @@
 
 The [Publish release images workflow](../.github/workflows/release.yml) builds one image for **Linux AMD64 and ARM64** and publishes it to GHCR and Docker Hub when a GitHub release is published. Draft releases and ordinary pushes do not publish images.
 
-Every release runs CI against the exact tagged commit before publication. CI builds a local image, tests first-run setup, and verifies an upgrade from the previous stable release. A failed check blocks publication to both registries. Release builds use registry credentials only in the publishing job. Actions are pinned to commit SHAs and updated by Dependabot.
+Every release runs CI against the exact tagged commit before publication. CI builds a local image, tests first-run setup, verifies an upgrade from the previous stable release, and checks the full SMS cycle with simulated LTE Pro and SMTP servers. A failed check blocks publication to both registries. Release builds use registry credentials only in the publishing job. Actions are pinned to commit SHAs and updated by Dependabot.
 
 ## Fresh installation gate
 
 CI starts the locally built image with the deployment security options and an empty data volume. It waits for Docker health and checks the setup form, CSRF protection, the eight-character password minimum, administrator creation, device onboarding, logout, and login. It then restarts the container with the same volume and verifies that the administrator, authenticated session, and closed setup wizard persist. The test removes its temporary container and volume, including after a failure, and prints container logs on failure.
 
 This check runs in ordinary CI and release validation before either registry receives an image. It exercises the runner's native platform, Linux AMD64 in GitHub Actions; the release build still produces AMD64 and ARM64 images. It does not connect to an LTE device or SMTP server.
+
+## SMS cycle gate
+
+CI runs the candidate image in a disposable container with networking disabled. A simulated LTE Pro accepts real SSH connections with a pinned host key and serves synthetic SMS through the modem command protocol. A local SMTP server captures the email. Both servers use the container's loopback interface; the check needs no device, mail account, or registry credentials.
+
+The check runs the application's worker and verifies PDU decoding, sender and received time, message and receipt storage, slot rereading, slot deletion, and email delivery. When the device receives a delete command, the simulator opens a separate SQLite connection and requires the archived SMS to be committed already. The SMTP server first rejects delivery temporarily: the SMS must remain archived, its slot must be cleared, and a retry must be recorded. The next worker run must deliver the email with the correct SMTP envelope, headers, sender, received time, and Unicode text. A final worker run must leave the archive unchanged and send no duplicate email.
+
+This gate runs in ordinary CI and before every release publication. A failed assertion blocks both registries. It uses the runner's native platform, Linux AMD64 in GitHub Actions, and removes its temporary container and data volume after the run. To run it locally against an existing image:
+
+```sh
+python scripts/smoke_sms.py --image unifi-sms:ci
+```
 
 ## Upgrade gate
 
@@ -18,7 +30,7 @@ The check pulls that version from GHCR, verifies its source revision against the
 
 The candidate must preserve the administrator's password and permissions, existing session, all stored SMS fields and receipts, device and SMTP settings, encrypted SSH credentials, persistent application secret, and `known_hosts` file. The check also verifies credential decryption, SQLite integrity, a fresh administrator login, closed first-run setup, and access to the inbox and settings pages. New database columns are allowed; existing values must remain intact.
 
-Both smoke tests use separate temporary volumes and named containers, remove them after the run, and print container logs on failure. Fixture connection settings point only to the test container's loopback interface; no real device or SMTP server is contacted. The upgrade check runs on the runner's native platform, Linux AMD64 in GitHub Actions. It skips only when no earlier published stable release exists. A missing image, mismatched revision, download failure, or failed assertion blocks publication.
+The installation and upgrade smoke tests use separate temporary volumes and named containers, remove them after the run, and print container logs on failure. Fixture connection settings point only to the test container's loopback interface; no real device or SMTP server is contacted. The upgrade check runs on the runner's native platform, Linux AMD64 in GitHub Actions. It skips only when no earlier published stable release exists. A missing image, mismatched revision, download failure, or failed assertion blocks publication.
 
 For manual rebuilds of older releases, CI takes the smoke tests and version selector from the workflow commit while building the application from the resolved release commit. The old release does not need to contain the new scripts.
 
