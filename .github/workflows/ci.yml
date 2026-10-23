@@ -87,10 +87,13 @@ jobs:
           mkdir -p "$SMOKE_TEST_DIR"
           git show "$SMOKE_TEST_REF:scripts/smoke_install.py" > "$SMOKE_TEST_DIR/smoke_install.py"
           git show "$SMOKE_TEST_REF:scripts/smoke_upgrade.py" > "$SMOKE_TEST_DIR/smoke_upgrade.py"
+          git show "$SMOKE_TEST_REF:scripts/smoke_sms.py" > "$SMOKE_TEST_DIR/smoke_sms.py"
           git show "$SMOKE_TEST_REF:.github/scripts/previous-release.cjs" > "$SMOKE_TEST_DIR/previous-release.cjs"
           echo "SMOKE_TEST_DIR=$SMOKE_TEST_DIR" >> "$GITHUB_ENV"
       - name: Verify fresh installation and administrator setup
         run: python "$SMOKE_TEST_DIR/smoke_install.py" --image unifi-sms:ci
+      - name: Verify SMS import, durable storage, slot cleanup, and email delivery
+        run: python "$SMOKE_TEST_DIR/smoke_sms.py" --image unifi-sms:ci
       - name: Select the previous stable release
         id: previous
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
