@@ -57,7 +57,9 @@ jobs:
       - name: Collect static assets
         run: python manage.py collectstatic --noinput
       - name: Run Python tests
-        run: python manage.py test inbox modem --noinput
+        run: |
+          python manage.py test inbox modem --noinput
+          python -m unittest discover -s scripts -p 'test_*.py'
       - name: Run JavaScript tests
         run: node --test tests/*.test.cjs
       - name: Audit pinned runtime dependencies
