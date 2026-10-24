@@ -37,11 +37,11 @@ Run on the Docker host:
 ```sh
 mkdir -p unifi-sms
 cd unifi-sms
-curl -fsSL https://raw.githubusercontent.com/akinfold/unifi-sms/v0.1.3/compose.ghcr.yaml -o compose.yaml
+curl -fsSL https://raw.githubusercontent.com/akinfold/unifi-sms/v0.1.4/compose.ghcr.yaml -o compose.yaml
 docker compose up -d
 ```
 
-This downloads the release Compose file and starts the public `0.1.3` image from GHCR. Docker downloads the image automatically. Prefer Docker Hub? [Switch the image below](#choose-your-registry).
+This downloads the release Compose file and starts the public `0.1.4` image from GHCR. Docker downloads the image automatically. Prefer Docker Hub? [Switch the image below](#choose-your-registry).
 
 ### 2. Create your administrator
 
@@ -68,13 +68,13 @@ Both images are public and support the same architectures. No registry login is 
 
 | Registry | Image |
 | --- | --- |
-| [GitHub Container Registry](https://github.com/users/akinfold/packages/container/package/unifi-sms) | `ghcr.io/akinfold/unifi-sms:0.1.3` |
-| [Docker Hub](https://hub.docker.com/r/akinfold/unifi-sms) | `docker.io/akinfold/unifi-sms:0.1.3` |
+| [GitHub Container Registry](https://github.com/users/akinfold/packages/container/package/unifi-sms) | `ghcr.io/akinfold/unifi-sms:0.1.4` |
+| [Docker Hub](https://hub.docker.com/r/akinfold/unifi-sms) | `docker.io/akinfold/unifi-sms:0.1.4` |
 
 To use Docker Hub, replace the `image:` line in `compose.yaml` with:
 
 ```yaml
-    image: docker.io/akinfold/unifi-sms:${IMAGE_TAG:-0.1.3}
+    image: docker.io/akinfold/unifi-sms:${IMAGE_TAG:-0.1.4}
 ```
 
 Run `docker compose up -d` again. Keep the same Compose project and data volume when switching registries.

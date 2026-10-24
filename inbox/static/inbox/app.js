@@ -13,6 +13,29 @@ async function api(url, data) {
   if (!response.ok) throw new Error(result.error || "The request failed. Please try again.");
   return result;
 }
+function forwardingStatus(message, enabled) {
+  if (!enabled) return document.createDocumentFragment();
+  const states = {
+    sent: ["Email sent", "The SMTP server accepted this message for all recipients."],
+    pending: ["Email pending", "Waiting for the next delivery attempt."],
+    error: ["Email error", "The last delivery attempt failed. Automatic retries are scheduled."],
+    not_queued: ["Email not queued", "This SMS has no email forwarding job. Only new, complete messages imported while forwarding is enabled are queued."]
+  };
+  const forwarding = message.forwarding || {};
+  const state = Object.hasOwn(states, forwarding.state) ? forwarding.state : "not_queued";
+  const [label, description] = states[state];
+  const status = node("div", "forwarding-status");
+  const badge = node("span", `forwarding-label forwarding-${state}`, label);
+  badge.title = description;
+  status.append(badge);
+  if (state === "sent" && forwarding.sent_at) {
+    const sentAt = node("time", "forwarded-at", `Sent ${date(forwarding.sent_at)}`);
+    sentAt.dateTime = forwarding.sent_at;
+    sentAt.title = new Date(forwarding.sent_at).toLocaleString();
+    status.append(sentAt);
+  }
+  return status;
+}
 function selection() {
   byId("selection-count").textContent = selected.size ? `${selected.size} selected` : "Select messages";
   byId("delete").disabled = !selected.size;
@@ -24,11 +47,13 @@ async function load() {
   const sequence = ++requestNumber;
   try {
     const query = new URLSearchParams({page, q: byId("search").value, unread: byId("unread").checked ? "1" : "0"});
+    if (opened !== null) query.set("opened", opened);
     const data = await api(`/api/messages/?${query}`);
     if (sequence !== requestNumber) return;
     page = data.page; pages = data.pages; selected.clear();
     byId("count").textContent = data.count;
     byId("list").replaceChildren();
+    if (!data.forwarding_enabled && byId("reader-forwarding")) byId("reader-forwarding").replaceChildren();
     if (!data.messages.length) byId("list").append(node("div", "empty", byId("search").value || byId("unread").checked ? "No messages match your filters." : "Your inbox is ready. New messages will appear here automatically."));
     for (const message of data.messages) {
       const row = node("div", `message-row ${message.read ? "" : "unread"} ${opened === message.id ? "active" : ""}`);
@@ -40,9 +65,11 @@ async function load() {
       receivedAt.dateTime = message.received_at;
       button.append(top, receivedAt, node("p", "preview", message.text));
       if (message.total_parts > 1 || message.pending_cleanup) button.append(node("span", "badge", message.pending_cleanup ? "Awaiting device cleanup" : `${message.saved_parts}/${message.total_parts} parts saved`));
+      button.append(forwardingStatus(message, data.forwarding_enabled));
       button.addEventListener("click", () => openMessage(message.id));
       row.append(checkbox, button); byId("list").append(row);
     }
+    if (data.opened_forwarding?.id === opened && byId("reader-forwarding")) byId("reader-forwarding").replaceChildren(forwardingStatus(data.opened_forwarding, data.forwarding_enabled));
     byId("page-label").textContent = `Page ${page} of ${pages}`;
     byId("previous").disabled = page <= 1; byId("next").disabled = page >= pages; selection();
   } catch (error) { showError(error); }
@@ -54,7 +81,9 @@ async function openMessage(id) {
     const body = node("div", "message-body", message.text);
     const note = node("p", "footnote", message.pending_cleanup ? "Saved in your archive. Device cleanup is pending." : "Saved in your archive. Device slot cleared.");
     if (message.saved_parts < message.total_parts) head.append(node("p", "badge", `Incomplete message: ${message.saved_parts} of ${message.total_parts} parts saved.`));
-    byId("reader").replaceChildren(head, body, note); await load();
+    const forwarding = node("div", "reader-forwarding"); forwarding.id = "reader-forwarding";
+    forwarding.append(forwardingStatus(message, message.forwarding_enabled));
+    byId("reader").replaceChildren(head, forwarding, body, note); await load();
   } catch (error) { showError(error); }
 }
 function renderPhone(data) {

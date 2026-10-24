@@ -17,7 +17,8 @@ from django.views.decorators.http import require_GET, require_POST
 
 from .device import configured, device_status, phone_status, request_phone_refresh
 from .forms import AdminAuthenticationForm, SetupForm
-from .models import AccessWindow, Installation, Message, Receipt, SyncStatus
+from .models import AccessWindow, ForwardDelivery, Installation, Message, Receipt, SyncStatus
+from .smtp_config import smtp_forwarding_active
 
 
 def initialized():
@@ -98,6 +99,27 @@ def home(request):
     return render(request, "inbox/home.html")
 
 
+def serialize_forwarding(message):
+    try:
+        delivery = message.forwarding
+    except ForwardDelivery.DoesNotExist:
+        delivery = None
+    forwarding = {
+        "state": "not_queued",
+        "sent_at": None,
+    }
+    if delivery:
+        forwarding = {
+            "state": "sent"
+            if delivery.sent_at
+            else "error"
+            if delivery.last_error
+            else "pending",
+            "sent_at": delivery.sent_at.isoformat() if delivery.sent_at else None,
+        }
+    return forwarding
+
+
 def serialize(message, full=False):
     return {
         "id": message.id,
@@ -108,22 +130,36 @@ def serialize(message, full=False):
         "saved_parts": message.saved_parts,
         "total_parts": message.total_parts,
         "pending_cleanup": message.receipts.filter(cleared_at__isnull=True).exists(),
+        "forwarding": serialize_forwarding(message),
     }
 
 
 @require_GET
 @admin_required
 def message_list(request):
-    messages = Message.objects.all()
+    messages = Message.objects.select_related("forwarding")
     query = request.GET.get("q", "")[:200]
     if query:
         messages = messages.filter(Q(sender__icontains=query) | Q(text__icontains=query))
     if request.GET.get("unread") == "1":
         messages = messages.filter(read_at__isnull=True)
     page = Paginator(messages, 30).get_page(request.GET.get("page", "1"))
+    try:
+        opened_id = int(request.GET.get("opened", ""))
+    except ValueError:
+        opened_id = 0
+    opened_message = (
+        Message.objects.select_related("forwarding").filter(pk=opened_id).first()
+        if 0 < opened_id <= 2**63 - 1 else None
+    )
     return JsonResponse(
         {
             "messages": [serialize(m) for m in page],
+            "opened_forwarding": {
+                "id": opened_message.pk,
+                "forwarding": serialize_forwarding(opened_message),
+            } if opened_message else None,
+            "forwarding_enabled": smtp_forwarding_active(),
             "page": page.number,
             "pages": page.paginator.num_pages,
             "count": page.paginator.count,
@@ -136,13 +172,15 @@ def message_list(request):
 @admin_required
 def message_detail(request, pk):
     try:
-        message = Message.objects.get(pk=pk)
+        message = Message.objects.select_related("forwarding").get(pk=pk)
     except Message.DoesNotExist:
         return JsonResponse({"error": "Message not found."}, status=404)
     if message.read_at is None:
         message.read_at = timezone.now()
         message.save(update_fields=["read_at"])
-    return JsonResponse(serialize(message, full=True))
+    return JsonResponse(
+        {**serialize(message, full=True), "forwarding_enabled": smtp_forwarding_active()}
+    )
 
 
 @require_POST
