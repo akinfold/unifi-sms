@@ -121,6 +121,21 @@ def inbox(client):
     return data
 
 
+
+def preserves_values(actual, expected):
+    # API additions must not hide changes to values exposed by the previous version.
+    if type(actual) is not type(expected):
+        return False
+    if isinstance(expected, dict):
+        return all(key in actual and preserves_values(actual[key], value)
+                   for key, value in expected.items())
+    if isinstance(expected, list):
+        return len(actual) == len(expected) and all(
+            preserves_values(item, old_item) for item, old_item in zip(actual, expected)
+        )
+    return actual == expected
+
+
 def create_container(name, image, volume):
     docker(
         'create', '--pull=never', '--name', name, '--publish', '127.0.0.1::8000',
@@ -170,7 +185,7 @@ def main():
         after = state(candidate, fields=before['fields'])
         for category in ('rows', 'files', 'effective_device', 'effective_smtp'):
             require(before[category] == after[category], f'Upgrade changed persisted {category}')
-        require(inbox(client) == expected_inbox, 'SMS or the authenticated session did not survive the upgrade')
+        require(preserves_values(inbox(client), expected_inbox), 'SMS or the authenticated session did not survive the upgrade')
         check_administrator(candidate)
         print('PASS: exact SMS, settings, encrypted credentials, host trust, and session survived the upgrade', flush=True)
 
@@ -178,7 +193,7 @@ def main():
         fresh.request('/').redirect('/login/')
         fresh.request('/setup/').redirect('/login/')
         fresh.post_form('/login/', credentials).redirect('/')
-        require(inbox(fresh) == expected_inbox, 'Administrator login or SMS access failed after upgrade')
+        require(preserves_values(inbox(fresh), expected_inbox), 'Administrator login or SMS access failed after upgrade')
         for path in ('/', '/settings/device/', '/settings/smtp/'):
             require(fresh.request(path).status == 200, f'Upgraded page failed: {path}')
         print('PASS: existing administrator can sign in; setup stays closed and settings pages open', flush=True)

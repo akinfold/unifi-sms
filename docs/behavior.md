@@ -36,6 +36,8 @@ Configure forwarding under **Settings → Email forwarding**. **Replace password
 
 Only messages completed while forwarding is enabled enter the persistent queue. Existing complete messages are not sent retroactively. Multipart SMS wait until all parts arrive. Each email includes the SMS sender, received timestamp with its UTC offset, and full text. Recipients receive separate copies.
 
+When forwarding is configured and enabled, the inbox and message reader show **Email pending**, **Email error**, or **Email sent**. Sent messages include the sending time. **Email not queued** means the SMS has no forwarding job, for example because it was imported before forwarding was enabled. Statuses are hidden while forwarding is disabled or its settings are incomplete.
+
 SMTP delivery runs after modem import. Delivery failures leave the SMS archive and device cleanup unaffected. Retries start after one minute and back off to one hour; the worker checks once a minute. Disabling forwarding pauses queued messages. Pending messages use current server and authentication settings, while recipient addresses are fixed when the first delivery attempt starts. Deleting an archived SMS also cancels its queued delivery unless a send is already in progress.
 
 Successful recipients are recorded separately, so a retry after a partial failure does not resend to them. SMTP cannot guarantee exactly-once delivery: a crash after server acceptance but before recording success may cause a duplicate. Retries retain the same Message-ID for each recipient. The Settings page shows pending delivery counts and the latest failure. A successful send means the SMTP server accepted the message, not that it reached the recipient's inbox.

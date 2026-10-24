@@ -10,3 +10,12 @@ def smtp_values():
 
 def smtp_enabled(values):
     return str(values["enabled"]).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def smtp_forwarding_active():
+    from .smtp_forms import SMTPSettingsForm
+
+    values, _ = smtp_values()
+    return smtp_enabled(values) and SMTPSettingsForm(
+        data=values, stored_password=values["password"]
+    ).is_valid()

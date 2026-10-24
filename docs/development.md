@@ -12,7 +12,7 @@ docker compose -f compose.yaml up --build -d
 docker compose -f compose.yaml ps
 ```
 
-Open [http://localhost:8080](http://localhost:8080), create the administrator, and complete the device wizard. The source Compose file builds `unifi-sms:0.1.3` locally, binds port `8080` to loopback, and uses project `unifi-sms`, container `unifi-sms-app`, and volume `unifi-sms_sms-data`.
+Open [http://localhost:8080](http://localhost:8080), create the administrator, and complete the device wizard. The source Compose file builds `unifi-sms:0.1.4` locally, binds port `8080` to loopback, and uses project `unifi-sms`, container `unifi-sms-app`, and volume `unifi-sms_sms-data`.
 
 The source and registry Compose files identify the same deployment. Do not start both as separate installations on one host. The explicit `-f compose.yaml` also excludes local override files; include any intended override explicitly.
 
