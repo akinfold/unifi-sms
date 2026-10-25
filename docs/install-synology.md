@@ -1,47 +1,26 @@
-# How to install UniFi SMS on a Synology NAS
+# Install UniFi SMS on a Synology NAS
 
-Archive SMS from a UniFi LTE Pro on your NAS, read them in a browser, and optionally forward new messages by email. This guide uses the published Docker image and Synology Container Manager. No source checkout, Portainer, registry login, or separate database is required.
+Run UniFi SMS on a Synology NAS with Container Manager. This guide covers a fresh installation on DSM 7.2 or later. The NAS must support Linux AMD64 or ARM64 containers; 32-bit ARM is not supported. Labels can vary by DSM version.
 
-**Applies to:** DSM 7.2 or later, on a NAS that offers Container Manager and can run Linux AMD64 or ARM64 containers. The image does not support 32-bit ARM. Menu labels can vary by DSM and package version.
+Before you start, have a DSM administrator account, a stable NAS LAN IP, internet access from the NAS, and the LTE Pro's SSH credentials from the UniFi Network application that manages it. Confirm the NAS can reach the LTE Pro over SSH (usually TCP 22). UniFi SMS and NAS accounts are separate.
 
-**Example throughout:** NAS `10.20.30.10`, browser port `8080`. Replace the example IP with your NAS IP.
+The initial setup uses HTTP. Use it only on a trusted private LAN, create the administrator before sharing access, and do not forward the app port from the internet. For remote access, use a VPN or [optional HTTPS access](nas-maintenance.md#optional-https-access).
 
-## STEP 1 — Check what you need
+## 1. Install Container Manager
 
-Have these ready:
+In **Package Center**, find and install **Container Manager**, then open it. The package must include the **Project** feature.
 
-- A DSM administrator account and a storage volume with free space.
-- The NAS's LAN IP address, preferably kept stable with a DHCP reservation.
-- Internet access from the NAS to pull the public image from GitHub Container Registry (GHCR) or Docker Hub.
-- Network access from the NAS to the LTE Pro's SSH port, usually TCP 22.
-- Access to the UniFi Network application that manages the device, so you can obtain its SSH credentials or install a public key.
+## 2. Create the project and paste the Compose file
 
-Use an SSH tunnel or HTTPS for initial setup and later browser, REST API, and MCP access over a network. The HTTP example sends credentials, keys, and SMS without transport encryption; use it only on a private network you control. Do not forward port 8080 from your router to the internet. For access from elsewhere, use a VPN or configure an HTTPS reverse proxy as described in [NAS maintenance](nas-maintenance.md#optional-https-access).
+In **File Station**, create a `unifi-sms` folder inside your container shared folder, such as `docker/unifi-sms`. Then open **Container Manager → Project → Create**. Set the project name to `unifi-sms`, choose that folder, and select the Compose editor.
 
-If you are moving an existing installation, use the [migration and restore procedure](nas-maintenance.md#restore-or-migrate-to-another-nas) instead of creating an empty archive. Stop the old importer before activating the new one.
-
-## STEP 2 — Install Container Manager
-
-Open **Package Center**, search for **Container Manager**, and install it. Open the package after installation.
-
-If the package is unavailable, check [Synology's package compatibility information](https://www.synology.com/en-in/dsm/packages/ContainerManager). This procedure requires the package's **Project** feature; instructions for the older DSM Docker package differ.
-
-## STEP 3 — Create the project folder
-
-In **File Station**, create a folder called `unifi-sms` inside a shared folder you use for containers, for example `docker/unifi-sms`. Create the shared folder first if necessary. Select the actual location on your NAS; do not assume its storage volume is named `volume1`.
-
-The project folder stores the Compose configuration. Application data lives in the Docker volume **`unifi-sms_sms-data`**, mounted at `/data`; it is not stored inside the project folder. Docker initializes the volume for the application's UID/GID `10001:10001`. Do not add a bind mount, `PUID`, `PGID`, or a `user:` override for this procedure.
-
-The volume holds SMS, administrator accounts, saved connection settings, trusted host keys, and the persistent application secret. Recreating the container with the same volume keeps that data. Copying the project folder alone does **not** back it up. [Docker explains how named volumes persist](https://docs.docker.com/engine/storage/volumes/).
-
-## STEP 4 — Create the project and paste the Compose configuration
-
-In **Container Manager → Project → Create**, set the project name to **`unifi-sms`**, choose the folder from STEP 3, and select the source option that lets you create a Compose file. Paste the following YAML. Alternatively, upload [compose.nas.yaml](compose.nas.yaml) through the upload option.
+Paste this configuration. Replace both instances of `10.20.30.10` with the NAS LAN IP:
 
 ```yaml
+name: unifi-sms
 services:
   app:
-    image: ghcr.io/akinfold/unifi-sms:0.1.6
+    image: docker.io/akinfold/unifi-sms:0.1.6
     container_name: unifi-sms-app
     restart: unless-stopped
     ports:
@@ -49,9 +28,6 @@ services:
     environment:
       DATA_DIR: /data
       ALLOWED_HOSTS: "10.20.30.10,localhost,127.0.0.1"
-      CSRF_TRUSTED_ORIGINS: ""
-      REQUIRE_HTTPS: "0"
-      TRUST_PROXY: "0"
     volumes:
       - sms-data:/data
     security_opt:
@@ -62,66 +38,26 @@ services:
 volumes:
   sms-data:
     name: unifi-sms_sms-data
-name: unifi-sms
 ```
 
-Before deploying, replace **both occurrences of `10.20.30.10`** with your NAS's LAN IPv4 address. It is an example, not an address to assign to the NAS.
+Docker Hub is the default public registry. If you prefer GHCR, change only the image line to `ghcr.io/akinfold/unifi-sms:0.1.6`. If port 8080 is busy, change only the host port (`8080`) and use that port in the browser URL; keep container port `8000`. No `.env` file is needed. [Synology's Project guide](https://kb.synology.com/en-global/DSM/help/ContainerManager/docker_project?version=7) documents the project wizard.
 
-| Setting | What to enter |
-| --- | --- |
-| `10.20.30.10:8080:8000` | Your NAS IP, the browser port, and the container port. Keep the final `8000`. |
-| `ALLOWED_HOSTS` | Your NAS IP. Keep `localhost,127.0.0.1` for local health checks. Use commas without spaces; do not include `http://` or a port. |
-| `image` | Use the GHCR image above or the Docker Hub alternative below. Docker selects AMD64 or ARM64 automatically. |
-| `sms-data` / `name` | Keep these values for a fresh installation. They identify the persistent data volume. |
+## 3. Deploy and open the app
 
-The example uses [GHCR](https://github.com/users/akinfold/packages/container/package/unifi-sms). To use [Docker Hub](https://hub.docker.com/r/akinfold/unifi-sms/tags), replace only the `image:` line before deploying:
+Continue through the project wizard, leave Web Station options unused, select **Start the project after creation**, and finish with **Done**. After the image downloads and the container starts, open `http://NAS_IP:8080` from a computer on the same LAN, substituting your NAS IP and chosen host port.
 
-```yaml
-    image: docker.io/akinfold/unifi-sms:0.1.6
-```
+## 4. Create the administrator and connect the device
 
-Both registries provide the same release for Linux AMD64 and ARM64 without a login. Keep the data volume and other settings unchanged when switching registries.
+Choose an application username and a password of at least 8 characters. Select the LTE Pro, or enter its IP manually if discovery finds nothing. Enter its SSH password or use a generated key. Verify the host fingerprint through a trusted console or administrator, approve the device, and start importing messages. See [First launch](nas-first-run.md) for the screens and details.
 
-If port 8080 is already in use, change only its host-side value, for example to `10.20.30.10:8090:8000`, and use port 8090 in your browser.
+Optional: [forward SMS to email](../README.md#forward-new-sms-to-email) or [enable REST API, MCP, and webhooks](../README.md#connect-scripts-mcp-clients-and-webhooks). All are configured in the browser and disabled by default.
 
-There is no `.env` file to create. Device credentials, SSH keys, host trust, and SMTP settings are entered in UniFi SMS after installation. Do not add them to this YAML.
+## Data, upgrades, and troubleshooting
 
-The click path and project fields follow [Synology's Project documentation](https://kb.synology.com/en-global/DSM/help/ContainerManager/docker_project).
+The named volume **`unifi-sms_sms-data`** holds the database, settings, administrator account, and application secret. The project folder alone is not a backup. Follow [Back up the complete data volume](nas-maintenance.md#back-up-the-complete-data-volume). For upgrades, follow [Upgrade the image](nas-maintenance.md#upgrade-the-image); do not delete the volume or use **Clean**. For migration, follow [Restore or migrate to another NAS](nas-maintenance.md#restore-or-migrate-to-another-nas). Run only one importer per LTE Pro.
 
-## STEP 5 — Deploy and check the container
+- **Project does not start:** check the project log and confirm the NAS can pull the image.
+- **Page does not open:** verify the NAS IP, host port, and LAN firewall rules.
+- **Device is not found:** enter its IP manually and verify NAS-to-device SSH access.
 
-Continue through the wizard. A Web Station portal is unnecessary for this direct-port setup. Review the configuration, select the option to start the project after creation, and finish with **Done**.
-
-The first deployment downloads the image and initializes the database. Allow a few minutes for a slow connection. In **Container Manager → Container**, find **`unifi-sms-app`** and check that it is running. If health status is displayed, allow about a minute for the first health check.
-
-If the container stops or keeps restarting, inspect its logs before retrying. Common causes and the exact diagnostic commands are in [Troubleshooting](nas-maintenance.md#troubleshooting).
-
-## STEP 6 — Open UniFi SMS
-
-From a computer on the same LAN, open:
-
-```text
-http://10.20.30.10:8080
-```
-
-Use your actual NAS IP and chosen host port. Use `http://` for this configuration, even if DSM itself uses HTTPS.
-
-You should see **Create administrator**. If the page is unreachable, confirm the IP and port mapping, then check any NAS or network firewall rules for access from your computer to TCP 8080. Do not disable the firewall as a shortcut.
-
-## STEP 7 — Create the administrator and connect the device
-
-Continue with [First launch: administrator, LTE Pro, and email forwarding](nas-first-run.md). That guide walks through every application setup screen, including generating an SSH key and approving the device fingerprint.
-
-After setup, confirm that a new SMS appears in the inbox and that the last successful scan updates. The container's HTTP health check verifies the web app and database; it does not establish that the modem is reachable.
-
-## STEP 8 — Make the first backup
-
-After confirming the installation works, follow [Back up the complete data volume](nas-maintenance.md#back-up-the-complete-data-volume). Keep a copy off the NAS and protect it as private data.
-
-The service restarts automatically when Docker starts because the Compose file uses `restart: unless-stopped`. A container you explicitly stop stays stopped until you start it again.
-
-For a future upgrade, back up first, edit the image tag in **Project → Details → YAML Configurations**, and redeploy. Use the full [upgrade checklist](nas-maintenance.md#upgrade-the-image). Do not use **Clean**, delete the data volume, or run `docker compose down -v` to update the application.
-
-## Validation
-
-The Compose configuration, application setup labels, and backup/restore commands were checked for release `0.1.1`. Vendor interface paths were checked against official documentation on October 18, 2026. The workflow has not been tested on physical Synology hardware; check labels against your installed DSM version.
+**Validation:** Compose was checked for release `0.1.6`, and the project steps follow [Synology's official documentation](https://kb.synology.com/en-global/DSM/help/ContainerManager/docker_project?version=7). This workflow has not been tested on physical Synology hardware.

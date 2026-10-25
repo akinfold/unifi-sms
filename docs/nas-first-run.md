@@ -48,9 +48,7 @@ Select **Continue** once the credentials or key are ready.
 
 ## STEP 5 — Check the connection and approve the device
 
-In version `0.1.1` and later, **Check connection** opens **Verify the SSH fingerprint** without sending credentials. Verify the fingerprint using the trusted connection described below, then select **Confirm fingerprint and check access**. The application authenticates only with the confirmed host key.
-
-If you still use `0.1.0`, upgrade first. That version authenticates immediately when you select **Check connection**.
+Select **Check connection** to open **Verify the SSH fingerprint** without sending credentials. Verify the fingerprint using the trusted connection described below, then select **Confirm fingerprint and check access**. The application authenticates only with the confirmed host key.
 
 On **Confirm this device**, review the IP address, model, device name, SSH key type and fingerprint, and phone number if the SIM reports one.
 
@@ -89,6 +87,8 @@ Open **Settings → Email forwarding** and enter your provider's values:
 Select **Send test email** and check the inbox and spam folder. The button uses the current form values without saving them and works while forwarding is disabled. A successful result means SMTP acceptance, not guaranteed inbox delivery.
 
 Enable **Enable email forwarding**, then select **Save settings**. Send another SMS to verify forwarding. Existing archived messages are not sent retroactively. A blank password keeps the saved password; use **Replace password** to change it.
+
+For optional REST API, MCP, and webhook forwarding, follow [Set up integrations](../README.md#connect-scripts-mcp-clients-and-webhooks). Each integration is disabled until you configure and enable it.
 
 ## STEP 8 — Protect the archive
 

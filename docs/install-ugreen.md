@@ -1,53 +1,26 @@
-# How to install UniFi SMS on a UGREEN NAS
+# Install UniFi SMS on a UGREEN NAS
 
-Run a private SMS inbox on your NAS using the published UniFi SMS image. The service archives messages from a UniFi LTE Pro in SQLite and can forward new messages through your SMTP provider. This guide uses the Docker application included with supported UGOS Pro models.
+Run UniFi SMS on a UGREEN NAS with the Docker app. Use a model that offers Docker in App Center and supports Linux AMD64 or ARM64 containers; 32-bit ARM is not supported. UGOS Pro labels can vary by version.
 
-**Applies to:** a UGREEN NAS with **Docker available in App Center** and a Linux AMD64 or ARM64 processor. Do not assume every UGREEN model supports Docker. The image does not support 32-bit ARM. UGOS Pro updates can change button labels.
+Before you start, have a UGOS Pro administrator account, a stable NAS LAN IP, internet access from the NAS, and the LTE Pro's SSH credentials from the UniFi Network application that manages it. Confirm the NAS can reach the LTE Pro over SSH (usually TCP 22). UniFi SMS and NAS accounts are separate.
 
-**Example throughout:** NAS `10.20.30.10`, browser port `8080`. Replace the example IP with your NAS IP.
+The initial setup uses HTTP. Use it only on a trusted private LAN, create the administrator before sharing access, and do not forward the app port from the internet. For remote access, use a VPN or [optional HTTPS access](nas-maintenance.md#optional-https-access).
 
-Use an SSH tunnel or [HTTPS reverse proxy](nas-maintenance.md#optional-https-access) for access over a network. The HTTP example sends credentials, keys, and SMS without transport encryption; use it only on a private network you control. Complete administrator setup before granting other clients access.
+## 1. Install Docker
 
-## STEP 1 — Prepare the NAS and device access
+In **App Center**, find and install **Docker**, then open it. If Docker is unavailable, confirm that your NAS model supports the app.
 
-Have these ready:
+## 2. Create a project and paste the Compose file
 
-- A UGOS Pro administrator account and an initialized storage volume with free space.
-- The NAS's LAN IP address, preferably kept stable with a DHCP reservation.
-- Internet access from the NAS to GitHub Container Registry (GHCR) or Docker Hub.
-- A route from the NAS to the LTE Pro's SSH port, usually TCP 22.
-- Access to the device's UniFi Network application for its SSH username, password, or public-key configuration.
+Open **Docker → Project → Create**, enter `unifi-sms` as the project name, and choose the Compose editor. UGOS Pro creates the project folder under its Docker shared directory; no manual folder or database setup is needed.
 
-You can check the NAS IP under **Control Panel → Network Settings → Network Connection**, as described in [UGREEN's login guide](https://support.ugnas.com/detail/article/en-US/60).
-
-Do not expose TCP 8080 through router port forwarding. Use a VPN or an HTTPS reverse proxy for access from elsewhere; see [NAS maintenance](nas-maintenance.md#optional-https-access).
-
-If another UniFi SMS installation already contains your messages, follow [Restore or migrate](nas-maintenance.md#restore-or-migrate-to-another-nas). Do not keep two importers active against the same device.
-
-## STEP 2 — Install the Docker application
-
-Open **App Center**, find **Docker**, and select **Install**. Choose a storage location if prompted, then open Docker.
-
-If Docker is not offered, confirm model support with UGREEN before proceeding. The [official UGREEN Docker guide](https://ai.ugreen.com/blogs/knowledge/docker-docker-compose-ugreen-nas) covers installation and model compatibility. A registry account, registry token, and Portainer are unnecessary for this service.
-
-## STEP 3 — Start a Compose project
-
-Open **Docker → Project → Create**. Enter **`unifi-sms`** as the project name. Choose the Compose editor or the option to import a `.yaml`/`.yml` file.
-
-UGOS Pro creates a project folder under the Docker shared directory. You do not need to create a database directory or change folder ownership for this procedure.
-
-The project folder stores the Compose configuration. Application data lives in the Docker volume **`unifi-sms_sms-data`**, mounted at `/data`; it is not stored inside the project folder. Docker initializes the volume for the application's UID/GID `10001:10001`. Do not add a bind mount, `PUID`, `PGID`, or a `user:` override for this procedure.
-
-The volume holds SMS, administrator accounts, saved connection settings, trusted host keys, and the persistent application secret. Recreating the container with the same volume keeps that data. Copying the project folder alone does **not** back it up. [Docker explains how named volumes persist](https://docs.docker.com/engine/storage/volumes/).
-
-## STEP 4 — Paste and customize the Compose configuration
-
-Paste the following YAML into the editor, or import [compose.nas.yaml](compose.nas.yaml).
+Paste this configuration. Replace both instances of `10.20.30.10` with the NAS LAN IP:
 
 ```yaml
+name: unifi-sms
 services:
   app:
-    image: ghcr.io/akinfold/unifi-sms:0.1.6
+    image: docker.io/akinfold/unifi-sms:0.1.6
     container_name: unifi-sms-app
     restart: unless-stopped
     ports:
@@ -55,9 +28,6 @@ services:
     environment:
       DATA_DIR: /data
       ALLOWED_HOSTS: "10.20.30.10,localhost,127.0.0.1"
-      CSRF_TRUSTED_ORIGINS: ""
-      REQUIRE_HTTPS: "0"
-      TRUST_PROXY: "0"
     volumes:
       - sms-data:/data
     security_opt:
@@ -68,64 +38,26 @@ services:
 volumes:
   sms-data:
     name: unifi-sms_sms-data
-name: unifi-sms
 ```
 
-Before deploying, replace **both occurrences of `10.20.30.10`** with your NAS's LAN IPv4 address. It is an example, not an address to assign to the NAS.
+Docker Hub is the default public registry. If you prefer GHCR, change only the image line to `ghcr.io/akinfold/unifi-sms:0.1.6`. If port 8080 is busy, change only the host port (`8080`) and use that port in the browser URL; keep container port `8000`. No `.env` file is needed. See [UGREEN's Project guide](https://support.ugnas.com/detail/article/en-US/411).
 
-| Setting | What to enter |
-| --- | --- |
-| `10.20.30.10:8080:8000` | Your NAS IP, the browser port, and the container port. Keep the final `8000`. |
-| `ALLOWED_HOSTS` | Your NAS IP. Keep `localhost,127.0.0.1` for local health checks. Use commas without spaces; do not include `http://` or a port. |
-| `image` | Use the GHCR image above or the Docker Hub alternative below. Docker selects AMD64 or ARM64 automatically. |
-| `sms-data` / `name` | Keep these values for a fresh installation. They identify the persistent data volume. |
+## 3. Deploy and open the app
 
-The example uses [GHCR](https://github.com/users/akinfold/packages/container/package/unifi-sms). To use [Docker Hub](https://hub.docker.com/r/akinfold/unifi-sms/tags), replace only the `image:` line before deploying:
+Select **Deploy** and wait for the image download and container startup. Open `http://NAS_IP:8080` from a computer on the same LAN, substituting your NAS IP and chosen host port.
 
-```yaml
-    image: docker.io/akinfold/unifi-sms:0.1.6
-```
+## 4. Create the administrator and connect the device
 
-Both registries provide the same release for Linux AMD64 and ARM64 without a login. Keep the data volume and other settings unchanged when switching registries.
+Choose an application username and a password of at least 8 characters. Select the LTE Pro, or enter its IP manually if discovery finds nothing. Enter its SSH password or use a generated key. Verify the host fingerprint through a trusted console or administrator, approve the device, and start importing messages. See [First launch](nas-first-run.md) for the screens and details.
 
-If port 8080 is already in use, change only its host-side value, for example to `10.20.30.10:8090:8000`, and use port 8090 in your browser.
+Optional: [forward SMS to email](../README.md#forward-new-sms-to-email) or [enable REST API, MCP, and webhooks](../README.md#connect-scripts-mcp-clients-and-webhooks). All are configured in the browser and disabled by default.
 
-There is no `.env` file to create. Device credentials, SSH keys, host trust, and SMTP settings are entered in UniFi SMS after installation. Do not add them to this YAML.
+## Data, upgrades, and troubleshooting
 
-## STEP 5 — Deploy the project
+The named volume **`unifi-sms_sms-data`** holds the database, settings, administrator account, and application secret. The project folder alone is not a backup. Follow [Back up the complete data volume](nas-maintenance.md#back-up-the-complete-data-volume). For upgrades, follow [Upgrade the image](nas-maintenance.md#upgrade-the-image); do not delete the volume or use **Clean**. For migration, follow [Restore or migrate to another NAS](nas-maintenance.md#restore-or-migrate-to-another-nas). Run only one importer per LTE Pro.
 
-Select **Deploy**. The NAS pulls the image and starts the project. Wait for the download to finish, then find **`unifi-sms-app`** under **Docker → Container**.
+- **Project does not start:** check the project log and confirm the NAS can pull the image.
+- **Page does not open:** verify the NAS IP, host port, and LAN firewall rules.
+- **Device is not found:** enter its IP manually and verify NAS-to-device SSH access.
 
-Confirm the container is running. Where health status is available, allow about a minute for the first check. Select the container to inspect **Log** if it exits or restarts. [UGREEN's Project guide](https://support.ugnas.com/detail/article/en-US/411) and [Container guide](https://support.ugnas.com/detail/article/en-US/289) describe these screens; labels vary across releases.
-
-Change Compose-managed settings in the project, rather than editing the individual container. This keeps the saved YAML consistent with the deployed service.
-
-## STEP 6 — Open the setup page
-
-On a computer on the same LAN, visit:
-
-```text
-http://10.20.30.10:8080
-```
-
-Use your actual NAS IP and host port. The protocol for this configuration is `http://`, even if you normally open UGOS Pro through an HTTPS address or a remote-access service.
-
-The application should display **Create administrator**. If it does not open, confirm the container's published port and any firewall or VLAN rules between your computer and the NAS. A remote UGOS desktop connection does not automatically publish this application's port.
-
-## STEP 7 — Set up the administrator, LTE Pro, and email
-
-Continue with [First launch: administrator, LTE Pro, and email forwarding](nas-first-run.md). That guide walks through every application setup screen, including generating an SSH key and approving the device fingerprint.
-
-After setup, confirm that a new SMS appears in the inbox and that the last successful scan updates. The container's HTTP health check verifies the web app and database; it does not establish that the modem is reachable.
-
-## STEP 8 — Back up before relying on the archive
-
-Follow [Back up the complete data volume](nas-maintenance.md#back-up-the-complete-data-volume), and retain a private copy outside the NAS. A copy of the UGOS project folder does not contain the named volume's SMS database.
-
-For later configuration changes, open the project's **⋯ → Settings → Compose configuration**, edit the YAML, and select **Redeploy**. Keep the volume name unchanged during upgrades. The [upgrade checklist](nas-maintenance.md#upgrade-the-image) explains how to pull a new release and verify it.
-
-The pinned `0.1.6` tag does not advance to another version when you check for image updates. Choose a published version explicitly. Do not delete the project or its volumes as an update method.
-
-## Validation
-
-The Compose configuration, application setup labels, and backup/restore commands were checked for release `0.1.1`. Interface paths were checked against official UGREEN documentation on October 18, 2026. The workflow has not been tested on physical UGREEN hardware; use the equivalent controls in your installed UGOS Pro version.
+**Validation:** Compose was checked for release `0.1.6`, and the project steps follow [UGREEN's official Project guide](https://support.ugnas.com/detail/article/en-US/411). This workflow has not been tested on physical UGREEN hardware.
