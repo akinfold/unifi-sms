@@ -8,10 +8,12 @@ import os
 from pathlib import Path
 import re
 import subprocess
+from tempfile import TemporaryDirectory
 
 
 PLATFORMS = ('amd64', 'arm64')
 IMAGE = 'unifi-sms:ci'
+OCI_INDEX = 'application/vnd.oci.image.index.v1+json'
 
 
 def command(*args):
@@ -113,6 +115,7 @@ def manifest_digest(reference):
 
 def verify_index(reference, candidates):
     index = raw_manifest(reference)
+    require(index.get('mediaType') == OCI_INDEX, 'Published index does not use OCI media types.')
     require(index.get('annotations', {}).get('org.opencontainers.image.description') == description(),
             'Published index description differs from README.')
     manifests = index.get('manifests', [])
@@ -131,6 +134,43 @@ def verify_index(reference, candidates):
     return manifest_digest(reference)
 
 
+def annotate_layout(directory):
+    root = directory / 'index.json'
+    layout = json.loads(root.read_text())
+    require(len(layout['manifests']) == 1, 'Expected one exported image index.')
+    descriptor = layout['manifests'][0]
+    algorithm, digest = descriptor['digest'].split(':', 1)
+    require(algorithm == 'sha256' and re.fullmatch('[0-9a-f]{64}', digest),
+            'Exported index has an invalid digest.')
+    source = directory / 'blobs' / algorithm / digest
+    require(archive_digest(source) == digest, 'Exported index checksum differs.')
+    index = json.loads(source.read_bytes())
+    require(len(index.get('manifests', [])) == len(PLATFORMS),
+            'Exported index has unexpected manifests.')
+    # Buildx drops annotations when every child uses Docker media types. Change only
+    # the index envelope; child manifests, config IDs, and layer blobs stay intact.
+    index['mediaType'] = OCI_INDEX
+    index.setdefault('annotations', {})['org.opencontainers.image.description'] = description()
+    data = json.dumps(index, separators=(',', ':'), sort_keys=True).encode()
+    digest = hashlib.sha256(data).hexdigest()
+    (directory / 'blobs' / 'sha256' / digest).write_bytes(data)
+    descriptor.update(mediaType=OCI_INDEX, digest='sha256:' + digest, size=len(data))
+    root.write_text(json.dumps(layout) + '\n')
+    return f'oci-layout://{directory}@sha256:{digest}'
+
+
+def publish_index(repository, sources):
+    version = f"{repository}:{os.environ['IMAGE_VERSION']}"
+    sha_tag = f"{repository}:sha-{os.environ['RELEASE_SHA']}"
+    with TemporaryDirectory(prefix='unifi-sms-release-index-') as temporary:
+        directory = Path(temporary) / 'image'
+        docker('buildx', 'imagetools', 'create', '--tag', f'oci-layout://{directory}', *sources)
+        source = annotate_layout(directory)
+        # A single index source without --annotation is copied without recomposition.
+        docker('buildx', 'imagetools', 'create', '--tag', version, '--tag', sha_tag, source)
+    return version, sha_tag
+
+
 def promote(candidates):
     digests = []
     for repository in (os.environ['GHCR_IMAGE'], os.environ['DOCKERHUB_IMAGE']):
@@ -145,11 +185,7 @@ def promote(candidates):
             require(raw_manifest(reference)['config']['digest'] == image_id,
                     'Pushed image config differs from the validated image ID.')
             sources.append(reference)
-        version = f"{repository}:{os.environ['IMAGE_VERSION']}"
-        sha_tag = f"{repository}:sha-{os.environ['RELEASE_SHA']}"
-        docker('buildx', 'imagetools', 'create', '--annotation',
-               'index:org.opencontainers.image.description=' + description(),
-               '--tag', version, '--tag', sha_tag, *sources)
+        version, sha_tag = publish_index(repository, sources)
         digest = verify_index(version, candidates)
         require(manifest_digest(sha_tag) == digest, 'Version and commit tags differ.')
         digests.append(digest)

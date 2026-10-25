@@ -112,6 +112,21 @@ jobs:
         run: |
           docker compose --env-file /dev/null -f compose.ghcr.yaml config --quiet
           docker compose --env-file /dev/null -f docs/compose.nas.yaml config --quiet
+      - name: Set up Buildx for release manifest validation
+        if: matrix.architecture == 'amd64'
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          version: v0.37.1
+          name: unifi-sms-manifest-validation
+          use: false
+      - name: Verify release metadata with Docker-format platform manifests
+        if: matrix.architecture == 'amd64'
+        env:
+          VALIDATION_REF: ${{ github.workflow_sha }}
+        run: |
+          git show "$VALIDATION_REF:.github/scripts/release-artifacts.py" > "$RUNNER_TEMP/release-artifacts.py"
+          git show "$VALIDATION_REF:scripts/smoke_release_manifest.py" > "$RUNNER_TEMP/smoke_release_manifest.py"
+          python "$RUNNER_TEMP/smoke_release_manifest.py" --helper "$RUNNER_TEMP/release-artifacts.py"
       - name: Build the platform image once
         env:
           VALIDATION_REF: ${{ github.workflow_sha }}
