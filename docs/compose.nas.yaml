@@ -1,6 +1,6 @@
 services:
   app:
-    image: ghcr.io/akinfold/unifi-sms:0.1.5
+    image: ghcr.io/akinfold/unifi-sms:0.1.6
     container_name: unifi-sms-app
     restart: unless-stopped
     ports:

@@ -1,7 +1,8 @@
-from django.contrib.auth.hashers import check_password, make_password
+from django.contrib.auth.hashers import make_password
 from django.contrib.auth.models import User
 from django.test import Client, TestCase
 
+from .api_keys import check_api_key, is_api_key_digest
 from .connection import decrypt_secret
 from .models import IntegrationSettings, WebhookSettings
 
@@ -54,16 +55,32 @@ class IntegrationSettingsTests(TestCase):
         stored = IntegrationSettings.objects.get(pk=1)
         self.assertTrue(stored.rest_enabled)
         self.assertTrue(stored.mcp_enabled)
-        self.assertTrue(check_password(REST_KEY, stored.rest_key_hash))
-        self.assertTrue(check_password(MCP_KEY, stored.mcp_key_hash))
+        self.assertTrue(check_api_key(REST_KEY, stored.rest_key_hash))
+        self.assertTrue(check_api_key(MCP_KEY, stored.mcp_key_hash))
         self.assertNotEqual(stored.rest_key_hash, REST_KEY)
         page = self.client.get("/settings/integrations/")
         for value in (REST_KEY, MCP_KEY, stored.rest_key_hash, stored.mcp_key_hash):
             self.assertNotContains(page, value)
         self.client.post("/settings/integrations/", {"rest_enabled": "on", "mcp_enabled": "on"})
         stored.refresh_from_db()
-        self.assertTrue(check_password(REST_KEY, stored.rest_key_hash))
-        self.assertTrue(check_password(MCP_KEY, stored.mcp_key_hash))
+        self.assertTrue(check_api_key(REST_KEY, stored.rest_key_hash))
+        self.assertTrue(check_api_key(MCP_KEY, stored.mcp_key_hash))
+
+    def test_generated_and_manual_keys_both_use_keyed_hashes(self):
+        generated = self.client.post("/api/integrations/key/").json()["key"]
+        manual = "a" * 32
+        self.assertRedirects(self.client.post("/settings/integrations/", {
+            "rest_enabled": "on", "rest_key": manual,
+            "mcp_enabled": "on", "mcp_key": generated,
+        }), "/settings/integrations/")
+        stored = IntegrationSettings.objects.get(pk=1)
+        for key, encoded in ((manual, stored.rest_key_hash), (generated, stored.mcp_key_hash)):
+            with self.subTest(key=key):
+                self.assertTrue(is_api_key_digest(encoded))
+                self.assertTrue(check_api_key(key, encoded))
+        self.assertEqual(self.client.get("/api/v1/messages/", HTTP_AUTHORIZATION="Bearer " + manual).status_code, 200)
+        self.assertEqual(self.client.post("/mcp/", data={"jsonrpc": "2.0", "id": 1, "method": "ping"},
+                                          content_type="application/json", HTTP_AUTHORIZATION="Bearer " + generated).status_code, 200)
 
     def test_key_validation_revoke_and_rotation(self):
         self.client.post("/settings/integrations/", {"rest_enabled": "on", "rest_key": "too-short"})
@@ -78,12 +95,12 @@ class IntegrationSettingsTests(TestCase):
         })
         self.assertContains(response, "disable access to revoke")
         stored.refresh_from_db()
-        self.assertTrue(check_password(REST_KEY, stored.rest_key_hash))
+        self.assertTrue(check_api_key(REST_KEY, stored.rest_key_hash))
         replacement = "replacement-synthetic-key-" + "z" * 32
         self.client.post("/settings/integrations/", {"rest_enabled": "on", "rest_key": replacement})
         stored.refresh_from_db()
-        self.assertFalse(check_password(REST_KEY, stored.rest_key_hash))
-        self.assertTrue(check_password(replacement, stored.rest_key_hash))
+        self.assertFalse(check_api_key(REST_KEY, stored.rest_key_hash))
+        self.assertTrue(check_api_key(replacement, stored.rest_key_hash))
         self.client.post("/settings/integrations/", {"rest_key_action": "revoke"})
         stored.refresh_from_db()
         self.assertFalse(stored.rest_enabled)

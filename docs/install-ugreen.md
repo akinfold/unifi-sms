@@ -6,6 +6,8 @@ Run a private SMS inbox on your NAS using the published UniFi SMS image. The ser
 
 **Example throughout:** NAS `10.20.30.10`, browser port `8080`. Replace the example IP with your NAS IP.
 
+Use an SSH tunnel or [HTTPS reverse proxy](nas-maintenance.md#optional-https-access) for access over a network. The HTTP example sends credentials, keys, and SMS without transport encryption; use it only on a private network you control. Complete administrator setup before granting other clients access.
+
 ## STEP 1 — Prepare the NAS and device access
 
 Have these ready:
@@ -18,7 +20,7 @@ Have these ready:
 
 You can check the NAS IP under **Control Panel → Network Settings → Network Connection**, as described in [UGREEN's login guide](https://support.ugnas.com/detail/article/en-US/60).
 
-Complete the initial HTTP setup on a trusted LAN. Do not expose TCP 8080 through router port forwarding. Use a VPN or an HTTPS reverse proxy for access outside the trusted network; see [NAS maintenance](nas-maintenance.md#optional-https-access).
+Do not expose TCP 8080 through router port forwarding. Use a VPN or an HTTPS reverse proxy for access from elsewhere; see [NAS maintenance](nas-maintenance.md#optional-https-access).
 
 If another UniFi SMS installation already contains your messages, follow [Restore or migrate](nas-maintenance.md#restore-or-migrate-to-another-nas). Do not keep two importers active against the same device.
 
@@ -45,7 +47,7 @@ Paste the following YAML into the editor, or import [compose.nas.yaml](compose.n
 ```yaml
 services:
   app:
-    image: ghcr.io/akinfold/unifi-sms:0.1.5
+    image: ghcr.io/akinfold/unifi-sms:0.1.6
     container_name: unifi-sms-app
     restart: unless-stopped
     ports:
@@ -81,7 +83,7 @@ Before deploying, replace **both occurrences of `10.20.30.10`** with your NAS's 
 The example uses [GHCR](https://github.com/users/akinfold/packages/container/package/unifi-sms). To use [Docker Hub](https://hub.docker.com/r/akinfold/unifi-sms/tags), replace only the `image:` line before deploying:
 
 ```yaml
-    image: docker.io/akinfold/unifi-sms:0.1.5
+    image: docker.io/akinfold/unifi-sms:0.1.6
 ```
 
 Both registries provide the same release for Linux AMD64 and ARM64 without a login. Keep the data volume and other settings unchanged when switching registries.
@@ -122,7 +124,7 @@ Follow [Back up the complete data volume](nas-maintenance.md#back-up-the-complet
 
 For later configuration changes, open the project's **⋯ → Settings → Compose configuration**, edit the YAML, and select **Redeploy**. Keep the volume name unchanged during upgrades. The [upgrade checklist](nas-maintenance.md#upgrade-the-image) explains how to pull a new release and verify it.
 
-The pinned `0.1.5` tag does not advance to another version when you check for image updates. Choose a published version explicitly. Do not delete the project or its volumes as an update method.
+The pinned `0.1.6` tag does not advance to another version when you check for image updates. Choose a published version explicitly. Do not delete the project or its volumes as an update method.
 
 ## Validation
 

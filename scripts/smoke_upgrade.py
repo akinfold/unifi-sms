@@ -23,6 +23,8 @@ import django
 django.setup()
 
 import paramiko
+from django.apps import apps
+from django.contrib.auth.hashers import make_password
 from django.conf import settings
 from django.contrib.auth.models import User
 from django.core.serializers.json import DjangoJSONEncoder
@@ -37,6 +39,9 @@ def digest(value):
     if not isinstance(value, bytes):
         value = json.dumps(value, cls=DjangoJSONEncoder, sort_keys=True).encode()
     return hashlib.sha256(value).hexdigest()
+
+integration_models = [apps.get_model('inbox', name) for name in ('IntegrationSettings', 'WebhookSettings')
+                      if name.lower() in apps.all_models['inbox']]
 
 if sys.argv[1] == 'seed':
     key = paramiko.RSAKey.generate(2048)
@@ -60,6 +65,19 @@ if sys.argv[1] == 'seed':
         'security': 'starttls', 'from_email': 'sms@example.invalid',
         'recipients': 'first@example.invalid\nsecond@example.invalid',
     })
+    for model in integration_models:
+        if model.__name__ == 'IntegrationSettings':
+            model.objects.update_or_create(pk=1, defaults={
+                'rest_enabled': True, 'rest_key_hash': make_password('synthetic-rest-upgrade-key-' + 'a' * 32),
+                'rest_key_suffix': 'aaaa', 'mcp_enabled': True,
+                'mcp_key_hash': make_password('synthetic-mcp-upgrade-key-' + 'b' * 32),
+                'mcp_key_suffix': 'bbbb',
+            })
+        else:
+            model.objects.update_or_create(pk=1, defaults={
+                'enabled': False, 'url': 'http://127.0.0.1:65532/upgrade-fixture',
+                'secret': 'synthetic-webhook-upgrade-secret', 'secret_header': 'X-Upgrade-Secret',
+            })
     for index, text in enumerate(['Unread upgrade message: café 🚀', 'Read multipart message. ' * 12]):
         timestamp = datetime(2025, 1, 2 + index, 3, 4, 5, tzinfo=timezone.utc)
         message = Message.objects.create(
@@ -75,7 +93,7 @@ if sys.argv[1] == 'seed':
                 cleared_at=timestamp,
             )
 
-models = [User, Installation, Message, Receipt, DeviceSettings, SMTPSettings]
+models = [User, Installation, Message, Receipt, DeviceSettings, SMTPSettings, *integration_models]
 fields = json.loads(sys.argv[2]) if len(sys.argv) > 2 else {
     model._meta.label: [field.attname for field in model._meta.concrete_fields
                         if not (model == User and field.name == 'last_login')]
@@ -83,7 +101,7 @@ fields = json.loads(sys.argv[2]) if len(sys.argv) > 2 else {
 }
 rows = {
     model._meta.label: digest(list(model.objects.order_by('pk').values(*fields[model._meta.label])))
-    for model in models
+    for model in models if model._meta.label in fields
 }
 device = DeviceSettings.objects.get(pk=1)
 assert device.password.startswith('fernet:') and device.private_key.startswith('fernet:')
@@ -97,6 +115,10 @@ assert effective['host'] == smtp['host'] == '127.0.0.1'
 assert effective['port'] == 65534 and smtp['port'] == 65533
 with connection.cursor() as cursor:
     assert cursor.execute('PRAGMA integrity_check').fetchall() == [('ok',)]
+    if sys.argv[1] == 'inspect':
+        encrypted = cursor.execute('SELECT password FROM inbox_smtpsettings WHERE id = 1').fetchone()[0]
+        assert encrypted.startswith('fernet:')
+        assert decrypt_secret(encrypted) == 'synthetic-smtp-password'
 print(json.dumps({
     'fields': fields, 'rows': rows,
     'files': {name: digest((settings.DATA_DIR / name).read_bytes())

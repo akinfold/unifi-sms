@@ -16,7 +16,7 @@ Have these ready:
 - Network access from the NAS to the LTE Pro's SSH port, usually TCP 22.
 - Access to the UniFi Network application that manages the device, so you can obtain its SSH credentials or install a public key.
 
-Use a trusted LAN for the initial HTTP setup. Do not forward port 8080 from your router to the internet. For access from elsewhere, use a VPN or configure an HTTPS reverse proxy as described in [NAS maintenance](nas-maintenance.md#optional-https-access).
+Use an SSH tunnel or HTTPS for initial setup and later browser, REST API, and MCP access over a network. The HTTP example sends credentials, keys, and SMS without transport encryption; use it only on a private network you control. Do not forward port 8080 from your router to the internet. For access from elsewhere, use a VPN or configure an HTTPS reverse proxy as described in [NAS maintenance](nas-maintenance.md#optional-https-access).
 
 If you are moving an existing installation, use the [migration and restore procedure](nas-maintenance.md#restore-or-migrate-to-another-nas) instead of creating an empty archive. Stop the old importer before activating the new one.
 
@@ -41,7 +41,7 @@ In **Container Manager → Project → Create**, set the project name to **`unif
 ```yaml
 services:
   app:
-    image: ghcr.io/akinfold/unifi-sms:0.1.5
+    image: ghcr.io/akinfold/unifi-sms:0.1.6
     container_name: unifi-sms-app
     restart: unless-stopped
     ports:
@@ -77,7 +77,7 @@ Before deploying, replace **both occurrences of `10.20.30.10`** with your NAS's 
 The example uses [GHCR](https://github.com/users/akinfold/packages/container/package/unifi-sms). To use [Docker Hub](https://hub.docker.com/r/akinfold/unifi-sms/tags), replace only the `image:` line before deploying:
 
 ```yaml
-    image: docker.io/akinfold/unifi-sms:0.1.5
+    image: docker.io/akinfold/unifi-sms:0.1.6
 ```
 
 Both registries provide the same release for Linux AMD64 and ARM64 without a login. Keep the data volume and other settings unchanged when switching registries.

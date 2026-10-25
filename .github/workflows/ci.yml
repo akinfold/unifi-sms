@@ -12,6 +12,11 @@ on:
         description: Commit to validate
         required: false
         type: string
+      export_images:
+        description: Retain validated platform images for release promotion
+        required: false
+        default: false
+        type: boolean
       target_tag:
         description: Release being validated; select a stable upgrade source below this version
         required: false
@@ -26,11 +31,22 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  validate:
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
+  platform:
+    name: Validate linux/${{ matrix.architecture }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - architecture: amd64
+            runner: ubuntu-latest
+          - architecture: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
     env:
       DATA_DIR: /tmp/unifi-sms-ci-data
+      RELEASE_SHA: ${{ inputs.ref || github.sha }}
+      IMAGE_VERSION: ${{ inputs.target_tag || github.sha }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -43,6 +59,7 @@ jobs:
           cache: pip
           cache-dependency-path: |
             requirements.txt
+            requirements-runtime.lock.txt
             requirements-dev.txt
             scripts/requirements-ui.txt
             scripts/requirements-integrations.txt
@@ -51,7 +68,17 @@ jobs:
           node-version: '22'
           package-manager-cache: false
       - name: Install dependencies
-        run: python -m pip install -r requirements-dev.txt
+        run: |
+          python - <<'PYTHON'
+          from pathlib import Path
+          pinned = {line.strip() for line in Path('requirements.txt').read_text().splitlines()
+                    if line.strip() and not line.startswith('#')}
+          locked = {line.rstrip(' \\') for line in Path('requirements-runtime.lock.txt').read_text().splitlines()
+                    if line and not line.startswith(('#', ' '))}
+          assert pinned == locked, 'Runtime hash lock differs from requirements.txt'
+          PYTHON
+          python -m pip install --require-hashes --only-binary=:all: -r requirements-runtime.lock.txt
+          python -m pip install -r requirements-dev.txt
       - name: Lint Python
         run: python -m ruff check .
       - name: Check migrations
@@ -62,11 +89,16 @@ jobs:
         run: |
           python manage.py test inbox modem --noinput
           python -m unittest discover -s scripts -p 'test_*.py'
+      - name: Run security regressions
+        run: >-
+          python manage.py test inbox.test_security_auth inbox.test_security_smtp
+          inbox.test_security_deadlines modem.tests.test_ssh --noinput
       - name: Run JavaScript tests
         run: node --test tests/*.test.cjs
       - name: Audit pinned runtime dependencies
         run: python -m pip_audit --disable-pip --no-deps -r requirements.txt
       - name: Scan Git history for secrets
+        if: matrix.architecture == 'amd64'
         shell: bash
         run: |
           archive="$RUNNER_TEMP/gitleaks.tar.gz"
@@ -80,8 +112,12 @@ jobs:
         run: |
           docker compose --env-file /dev/null -f compose.ghcr.yaml config --quiet
           docker compose --env-file /dev/null -f docs/compose.nas.yaml config --quiet
-      - name: Build Docker image
-        run: docker build --tag unifi-sms:ci .
+      - name: Build the platform image once
+        env:
+          VALIDATION_REF: ${{ github.workflow_sha }}
+        run: |
+          git show "$VALIDATION_REF:.github/scripts/release-artifacts.py" > "$RUNNER_TEMP/release-artifacts.py"
+          python "$RUNNER_TEMP/release-artifacts.py" build --architecture '${{ matrix.architecture }}'
       - name: Load smoke tests from the workflow commit
         env:
           SMOKE_TEST_REF: ${{ github.workflow_sha }}
@@ -115,7 +151,7 @@ jobs:
         if: failure() && steps.forwarding-ui.outcome == 'failure'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: forwarding-ui-failure
+          name: forwarding-ui-failure-${{ matrix.architecture }}
           path: ${{ runner.temp }}/unifi-sms-forwarding-ui
           if-no-files-found: ignore
           retention-days: 7
@@ -128,7 +164,7 @@ jobs:
         if: failure() && steps.integrations.outcome == 'failure'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: integrations-failure
+          name: integrations-failure-${{ matrix.architecture }}
           path: ${{ runner.temp }}/unifi-sms-integrations
           if-no-files-found: ignore
           retention-days: 7
@@ -177,3 +213,30 @@ jobs:
           digest=$(docker image inspect "$PREVIOUS_IMAGE" --format '{{index .RepoDigests 0}}')
           echo "Upgrade source image: $digest"
           python "$SMOKE_TEST_DIR/smoke_upgrade.py" --previous-image "$digest" --image unifi-sms:ci
+      - name: Retain the exact validated image
+        if: inputs.export_images
+        run: >-
+          python "$RUNNER_TEMP/release-artifacts.py" export
+          --architecture '${{ matrix.architecture }}'
+          --directory "$RUNNER_TEMP/validated-image"
+      - name: Upload the validated platform image
+        if: inputs.export_images
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: validated-image-${{ matrix.architecture }}
+          path: ${{ runner.temp }}/validated-image
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
+  validate:
+    name: validate
+    if: always()
+    needs: platform
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require both platform validations to succeed
+        env:
+          PLATFORM_RESULT: ${{ needs.platform.result }}
+        run: test "$PLATFORM_RESULT" = success

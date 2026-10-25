@@ -7,6 +7,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.utils.http import is_same_domain
 
 from .api_auth import authenticate_request
+from .json_input import load_json
 from .sms_service import ApiError, create_message, delete_message, get_message, list_messages, update_message
 
 SUPPORTED_VERSIONS = ("2025-11-25", "2025-06-18", "2025-03-26")
@@ -116,7 +117,7 @@ def _rpc_error(request_id, code, message, data=None):
 def _validate_rpc(value):
     if not isinstance(value, dict) or value.get("jsonrpc") != "2.0" or not isinstance(value.get("method"), str):
         raise ValueError
-    if "id" in value and (isinstance(value["id"], (dict, list, bool))):
+    if "id" in value and value["id"] is not None and type(value["id"]) not in (str, int, float):
         raise ValueError
     params = value.get("params", {})
     if not isinstance(params, dict):
@@ -193,7 +194,10 @@ def _dispatch(message):
     try:
         params = _validate_rpc(message)
     except ValueError:
-        return _rpc_error(message.get("id") if isinstance(message, dict) else None, -32600, "Invalid Request")
+        request_id = message.get("id") if isinstance(message, dict) else None
+        if type(request_id) not in (str, int, float):
+            request_id = None
+        return _rpc_error(request_id, -32600, "Invalid Request")
     request_id = message.get("id")
     method = message["method"]
     if "id" not in message:
@@ -244,8 +248,8 @@ def endpoint(request):
     if len(request.body) > MAX_BODY_BYTES:
         return HttpResponse(status=413)
     try:
-        message = json.loads(request.body)
-    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError):
+        message = load_json(request.body)
+    except (UnicodeError, ValueError, RecursionError):
         return _response(_rpc_error(None, -32700, "Parse error"), 400)
     if isinstance(message, list):
         return _response(_rpc_error(None, -32600, "Batch requests are not supported"), 400)

@@ -2,7 +2,7 @@
 
 These procedures apply to the [Synology](install-synology.md) and [UGREEN](install-ugreen.md) guides. They assume container **`unifi-sms-app`** and data volume **`unifi-sms_sms-data`**. Substitute the actual data volume name if you changed it during a restore.
 
-The commands below use GHCR. For Docker Hub, replace `ghcr.io/akinfold/unifi-sms:0.1.5` with `docker.io/akinfold/unifi-sms:0.1.5`. Both registries provide the same release without a login; keep the data volume and other settings unchanged.
+The commands below use GHCR. For Docker Hub, replace `ghcr.io/akinfold/unifi-sms:0.1.6` with `docker.io/akinfold/unifi-sms:0.1.6`. Both registries provide the same release without a login; keep the data volume and other settings unchanged.
 
 ## Open a NAS terminal when needed
 
@@ -30,7 +30,7 @@ HTTP health covers the web process and SQLite connectivity. Check the applicatio
 
 ## Back up the complete data volume
 
-Back up all of `/data`, including `sms.sqlite3`, any SQLite companion files, `secret-key`, and `known_hosts`. The secret key is needed to decrypt saved device credentials. The backup also contains SMS, administrator data, and any saved SMTP password. Protect it as a secret and keep an off-NAS copy.
+Back up all of `/data`, including `sms.sqlite3`, any SQLite companion files, `secret-key`, and `known_hosts`. The secret key is needed to decrypt saved device credentials, SMTP passwords, and webhook secrets. The backup also contains SMS and administrator data. A complete-volume backup includes both encrypted credentials and their decryption secret; older backups can contain plaintext SMTP passwords. Restrict access, encrypt backups separately, and keep an off-NAS copy.
 
 The commands below briefly stop the application so SQLite and its companion files are consistent. They read the existing volume without changing it. First confirm the mounted volume:
 
@@ -49,7 +49,7 @@ sudo docker stop -t 45 unifi-sms-app &&
 if sudo docker run --rm --name unifi-sms-backup --user 0:0 \
   --entrypoint tar \
   --mount type=volume,source=unifi-sms_sms-data,target=/data,readonly \
-  ghcr.io/akinfold/unifi-sms:0.1.5 \
+  ghcr.io/akinfold/unifi-sms:0.1.6 \
   -czf - -C /data . > "$backup_file"; then
   sudo docker start unifi-sms-app
   if tar -tzf "$backup_file" >/dev/null; then
@@ -91,7 +91,7 @@ sudo docker volume create "$restore_volume"
 sudo docker run --rm -i --name unifi-sms-restore --user 0:0 \
   --entrypoint sh \
   --mount "type=volume,source=$restore_volume,target=/data" \
-  ghcr.io/akinfold/unifi-sms:0.1.5 \
+  ghcr.io/akinfold/unifi-sms:0.1.6 \
   -c 'test -z "$(ls -A /data)" || { echo "Restore volume is not empty" >&2; exit 1; }; tar -xzpf - -C /data && chown -R 10001:10001 /data && chmod 700 /data' \
   < "$backup_file" &&
 printf 'Restored volume: %s\n' "$restore_volume"
@@ -136,7 +136,7 @@ The version tag is deliberately pinned. Image update detection will not select a
 
 ## Optional HTTPS access
 
-The supplied YAML serves HTTP on the NAS's specified LAN interface. For a trusted LAN or VPN this can be sufficient; use HTTPS when credentials would cross an untrusted network.
+Use HTTPS for browser, REST API, and MCP access over a network. The supplied NAS YAML serves HTTP on a specified LAN interface; it sends passwords, keys, and SMS without transport encryption. Use it only on a private network you control, or reach the loopback binding through an SSH tunnel. Complete administrator setup before granting other clients access.
 
 For an HTTPS reverse proxy running on the NAS host:
 
@@ -153,11 +153,13 @@ environment:
   CSRF_TRUSTED_ORIGINS: "https://sms.example.com"
   REQUIRE_HTTPS: "1"
   TRUST_PROXY: "1"
+  TRUSTED_PROXY_CIDRS: "REPLACE_WITH_PROXY_PEER_IP/32"
 ```
 
-4. Ensure the proxy preserves the requested host and sets `X-Forwarded-Proto: https` for HTTPS requests. Save the Compose changes and redeploy. Open `https://sms.example.com` and test sign-in and form submission.
+4. Replace `REPLACE_WITH_PROXY_PEER_IP/32` with the immediate proxy peer address as seen by the container. Docker may translate a host proxy to a bridge gateway address; do not assume it appears as `127.0.0.1`. Use `/128` for an IPv6 address. List multiple trusted addresses or narrowly scoped networks separated by commas. Do not trust all addresses (`0.0.0.0/0` or `::/0`).
+5. Ensure the proxy preserves the requested host, replaces `X-Forwarded-For` with the client address, and sets `X-Forwarded-Proto: https` for HTTPS requests. Save the Compose changes and redeploy. Open `https://sms.example.com` and test sign-in and form submission.
 
-This example assumes the proxy runs on the NAS host. A proxy in another container cannot reach the NAS through its own `127.0.0.1`; configure an appropriate private Docker network and restrict direct backend access before enabling proxy trust. Enabling HTTPS in DSM or UGOS alone does not enable it for UniFi SMS. Router port forwarding is not needed for LAN or VPN access.
+This example assumes the proxy runs on the NAS host. A proxy in another container cannot reach the NAS through its own `127.0.0.1`; configure an appropriate private Docker network and restrict direct backend access before enabling proxy trust. Forwarded headers are ignored unless the immediate peer is trusted; `TRUST_PROXY=1` alone does not trust a proxy. A wrong peer address can cause HTTPS redirect loops. Restrict backend access to the proxy and test two different clients so their login limits remain separate. Enabling HTTPS in DSM or UGOS alone does not enable it for UniFi SMS. Router port forwarding is not needed for LAN or VPN access.
 
 ## Recover an administrator password
 

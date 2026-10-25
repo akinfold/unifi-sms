@@ -12,7 +12,7 @@ docker compose -f compose.yaml up --build -d
 docker compose -f compose.yaml ps
 ```
 
-Open [http://localhost:8080](http://localhost:8080), create the administrator, and complete the device wizard. The source Compose file builds `unifi-sms:0.1.5` locally, binds port `8080` to loopback, and uses project `unifi-sms`, container `unifi-sms-app`, and volume `unifi-sms_sms-data`.
+Open [http://localhost:8080](http://localhost:8080), create the administrator, and complete the device wizard. The source Compose file builds `unifi-sms:0.1.6` locally, binds port `8080` to loopback, and uses project `unifi-sms`, container `unifi-sms-app`, and volume `unifi-sms_sms-data`.
 
 The source and registry Compose files identify the same deployment. Do not start both as separate installations on one host. The explicit `-f compose.yaml` also excludes local override files; include any intended override explicitly.
 
@@ -79,7 +79,7 @@ The check uses disposable Docker resources, synthetic SMS, a test administrator,
 
 ## Test coverage
 
-Tests use synthetic messages and a simulated modem. They cover PDU decoding, saving before deletion, slot reuse, recovery, multipart assembly, administrator setup, authentication and CSRF, trusted connection setup, device credential encryption, SMTP settings, and forwarding retries. They also cover REST and MCP authentication and archive CRUD, webhook settings and retries, delivery status rendering, and hiding disabled integrations. Legacy device and SMTP environment variables are ignored rather than overriding saved settings.
+Tests use synthetic messages and a simulated modem. They cover PDU decoding, saving before deletion, slot reuse, recovery, multipart assembly, administrator setup, authentication and CSRF, trusted connection setup, device and SMTP credential encryption, encryption migration without data loss, SMTP settings, and forwarding retries. They also cover REST and MCP authentication and archive CRUD, webhook settings and retries, delivery status rendering, and hiding disabled integrations. Security regressions also cover bounded API authentication work, proxy-header spoofing, isolated login limits, malformed REST and MCP JSON, and total SSH and webhook deadlines. Legacy device and SMTP environment variables are ignored rather than overriding saved settings.
 
 Version `0.1.1` and the current source confirm the host key before sending SSH credentials and use Paramiko 5.0.0. They reject legacy SHA-1 SSH algorithms; verify firmware compatibility before upgrading from `0.1.0`.
 
