@@ -263,4 +263,3 @@ class WebhookTests(TestCase):
                 delivery.refresh_from_db()
                 self.assertEqual(delivery.attempts, 0)
                 self.assertFalse(self.requests)
-
