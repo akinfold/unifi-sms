@@ -9,7 +9,8 @@ from uuid import uuid4
 from smoke_install import docker, require
 
 
-RUNTIME = r"""from email import policy
+RUNTIME = r"""import base64
+from email import policy
 from email.parser import BytesParser
 import io
 import os
@@ -61,9 +62,19 @@ class SmtpHandler(socketserver.StreamRequestHandler):
 
     def handle(self):
         self.request.settimeout(15)
+        if self.server.greeting_gate is not None:
+            ready, release = self.server.greeting_gate
+            ready.set()
+            for _ in range(30):
+                if release.wait(2):
+                    break
+                self.reply("220-localhost waiting for test delivery")
+            else:
+                check(False, "Timed out waiting to resume SMTP delivery")
         self.reply("220 localhost ESMTP smoke")
         envelope_from = ""
         recipients = []
+        authenticated = self.server.credentials is None
         while True:
             raw = self.rfile.readline(65536)
             if not raw:
@@ -72,8 +83,20 @@ class SmtpHandler(socketserver.StreamRequestHandler):
             command, _, argument = line.partition(" ")
             command = command.upper()
             if command in ("EHLO", "HELO"):
-                self.wfile.write(b"250-localhost\r\n250 SIZE 1048576\r\n")
+                self.wfile.write(b"250-localhost\r\n250-AUTH PLAIN\r\n250 SIZE 1048576\r\n")
                 self.wfile.flush()
+            elif command == "AUTH":
+                mechanism, _, value = argument.partition(" ")
+                try:
+                    supplied = tuple(base64.b64decode(value, validate=True).decode().split("\x00")[1:])
+                except (ValueError, UnicodeError):
+                    supplied = ()
+                authenticated = mechanism.upper() == "PLAIN" and supplied == self.server.credentials
+                if authenticated:
+                    self.server.authenticated += 1
+                self.reply("235 authenticated" if authenticated else "535 invalid credentials")
+            elif command == "MAIL" and not authenticated:
+                self.reply("530 authentication required")
             elif command == "MAIL":
                 match = re.match(r"FROM:\s*<([^>]*)>", argument, re.IGNORECASE)
                 check(match is not None, "SMTP MAIL command had no valid address")
@@ -125,21 +148,25 @@ class SmtpServer(socketserver.ThreadingTCPServer):
     allow_reuse_address = True
     daemon_threads = True
 
-    def __init__(self):
-        super().__init__(("127.0.0.1", 0), SmtpHandler)
+    def __init__(self, port=0, credentials=None, greeting_gate=None):
+        super().__init__(("127.0.0.1", port), SmtpHandler)
+        self.credentials = credentials
+        self.greeting_gate = greeting_gate
+        self.authenticated = 0
         self.lock = threading.Lock()
         self.fail_data = True
         self.messages = []
 
 
 class SshServer(paramiko.ServerInterface):
-    def __init__(self, allowed_key):
+    def __init__(self, allowed_key, username="smoke-device"):
         self.allowed_key = allowed_key
+        self.username = username
         self.channels = {}
         self.lock = threading.Lock()
 
     def check_auth_publickey(self, username, key):
-        if username == "smoke-device" and key.asbytes() == self.allowed_key.asbytes():
+        if username == self.username and key.asbytes() == self.allowed_key.asbytes():
             return paramiko.AUTH_SUCCESSFUL
         return paramiko.AUTH_FAILED
 
@@ -171,11 +198,12 @@ class SshServer(paramiko.ServerInterface):
 
 
 class FakeModem:
-    def __init__(self, private_key):
+    def __init__(self, private_key, *, host_key=None, port=0, username="smoke-device"):
         self.private_key = private_key
-        self.host_key = paramiko.RSAKey.generate(2048)
+        self.username = username
+        self.host_key = host_key or paramiko.RSAKey.generate(2048)
         self.listener = socket.socket()
-        self.listener.bind(("127.0.0.1", 0))
+        self.listener.bind(("127.0.0.1", port))
         self.listener.listen(8)
         self.listener.settimeout(0.5)
         self.port = self.listener.getsockname()[1]
@@ -200,7 +228,7 @@ class FakeModem:
     def handle_connection(self, sock):
         transport = paramiko.Transport(sock)
         transport.add_server_key(self.host_key)
-        interface = SshServer(self.private_key)
+        interface = SshServer(self.private_key, self.username)
         try:
             transport.start_server(server=interface)
             while transport.is_active() and not self.stop_event.is_set():
@@ -343,12 +371,12 @@ class FakeModem:
         self.thread.join(timeout=3)
 
 
-def worker():
+def worker(timeout=35):
     result = subprocess.run(
         [sys.executable, "manage.py", "runworker", "--once"],
         capture_output=True,
         text=True,
-        timeout=35,
+        timeout=timeout,
     )
     check(result.returncode == 0, "runworker --once failed")
 

@@ -4,9 +4,12 @@ import argparse
 import json
 import secrets
 import sys
+import tempfile
+from pathlib import Path
 from uuid import uuid4
 
 from smoke_install import Client, check_administrator, docker, require, wait_healthy
+from smoke_upgrade_cycle import verify_cycle
 
 
 # Run fixture creation and inspection with each image's own Django runtime.
@@ -43,6 +46,8 @@ def digest(value):
 integration_models = [apps.get_model('inbox', name) for name in ('IntegrationSettings', 'WebhookSettings')
                       if name.lower() in apps.all_models['inbox']]
 
+assert len(integration_models) == 2, 'Upgrade source must support REST, MCP, and webhooks'
+
 if sys.argv[1] == 'seed':
     key = paramiko.RSAKey.generate(2048)
     private_key = io.StringIO()
@@ -62,20 +67,24 @@ if sys.argv[1] == 'seed':
     SMTPSettings.objects.update_or_create(pk=1, defaults={
         'enabled': True, 'host': '127.0.0.1', 'port': 65533,
         'username': 'upgrade-smtp', 'password': 'synthetic-smtp-password',
-        'security': 'starttls', 'from_email': 'sms@example.invalid',
-        'recipients': 'first@example.invalid\nsecond@example.invalid',
+        'security': 'none', 'from_email': 'sms@example.invalid',
+        'recipients': 'first@example.invalid, second@example.invalid',
     })
+    try:
+        from inbox.api_keys import make_api_key_hash as hash_key
+    except ImportError:
+        hash_key = make_password
     for model in integration_models:
         if model.__name__ == 'IntegrationSettings':
             model.objects.update_or_create(pk=1, defaults={
-                'rest_enabled': True, 'rest_key_hash': make_password('synthetic-rest-upgrade-key-' + 'a' * 32),
+                'rest_enabled': True, 'rest_key_hash': hash_key('synthetic-rest-upgrade-key-' + 'a' * 32),
                 'rest_key_suffix': 'aaaa', 'mcp_enabled': True,
-                'mcp_key_hash': make_password('synthetic-mcp-upgrade-key-' + 'b' * 32),
+                'mcp_key_hash': hash_key('synthetic-mcp-upgrade-key-' + 'b' * 32),
                 'mcp_key_suffix': 'bbbb',
             })
         else:
             model.objects.update_or_create(pk=1, defaults={
-                'enabled': False, 'url': 'http://127.0.0.1:65532/upgrade-fixture',
+                'enabled': True, 'url': 'http://127.0.0.1:65532/upgrade-fixture',
                 'secret': 'synthetic-webhook-upgrade-secret', 'secret_header': 'X-Upgrade-Secret',
             })
     for index, text in enumerate(['Unread upgrade message: café 🚀', 'Read multipart message. ' * 12]):
@@ -99,10 +108,23 @@ fields = json.loads(sys.argv[2]) if len(sys.argv) > 2 else {
                         if not (model == User and field.name == 'last_login')]
     for model in models
 }
-rows = {
-    model._meta.label: digest(list(model.objects.order_by('pk').values(*fields[model._meta.label])))
-    for model in models if model._meta.label in fields
+identities = json.loads(sys.argv[3]) if len(sys.argv) > 3 else {
+    model._meta.label: list(model.objects.order_by('pk').values_list('pk', flat=True))
+    for model in models
 }
+rows, logical_rows = {}, {}
+for model in models:
+    label = model._meta.label
+    if label not in fields:
+        continue
+    records = list(model.objects.filter(pk__in=identities[label]).order_by('pk').values(*fields[label]))
+    rows[label] = digest(records)
+    # Successful authentication may migrate a legacy API hash without changing the key.
+    logical_rows[label] = digest([
+        {key: value for key, value in record.items()
+         if not (label == 'inbox.IntegrationSettings' and key.endswith('_key_hash'))}
+        for record in records
+    ])
 device = DeviceSettings.objects.get(pk=1)
 assert device.password.startswith('fernet:') and device.private_key.startswith('fernet:')
 assert decrypt_secret(device.password) == 'synthetic-device-password'
@@ -120,7 +142,7 @@ with connection.cursor() as cursor:
         assert encrypted.startswith('fernet:')
         assert decrypt_secret(encrypted) == 'synthetic-smtp-password'
 print(json.dumps({
-    'fields': fields, 'rows': rows,
+    'fields': fields, 'identities': identities, 'rows': rows, 'logical_rows': logical_rows,
     'files': {name: digest((settings.DATA_DIR / name).read_bytes())
               for name in ['secret-key', 'known_hosts']},
     'effective_device': digest(effective), 'effective_smtp': digest(smtp),
@@ -128,10 +150,13 @@ print(json.dumps({
 '''
 
 
-def state(container, *, seed=False, fields=None):
+def state(container, *, seed=False, fields=None, identities=None):
     args = ['exec', '-i', container, 'python', '-', 'seed' if seed else 'inspect']
     if fields is not None:
         args.append(json.dumps(fields))
+    if identities is not None:
+        require(fields is not None, "Record identities require a field projection")
+        args.append(json.dumps(identities))
     return json.loads(docker(*args, input=STATE_PROGRAM))
 
 
@@ -163,7 +188,12 @@ def create_container(name, image, volume):
         'create', '--pull=never', '--name', name, '--publish', '127.0.0.1::8000',
         '--mount', f'type=volume,source={volume},target=/data',
         '--security-opt', 'no-new-privileges:true', '--cap-drop', 'ALL',
-        '--stop-timeout', '45', image,
+        '--stop-timeout', '45', '--entrypoint', 'python', image, '-c',
+        "import os,subprocess,sys; os.umask(0o077); "
+        "subprocess.run([sys.executable,'manage.py','migrate','--noinput'],check=True); "
+        "os.execvp('gunicorn',['gunicorn','config.wsgi:application','--bind','0.0.0.0:8000',"
+        "'--workers','1','--threads','4','--access-logfile','/dev/null'])",
+
     )
 
 
@@ -172,9 +202,11 @@ def main():
     parser.add_argument('--previous-image', required=True, help='Locally available previous image')
     parser.add_argument('--image', required=True, help='Locally available candidate image')
     parser.add_argument('--timeout', type=int, default=120, help='Health timeout per startup in seconds')
+    parser.add_argument('--artifacts-dir', type=Path, help='Directory for failure diagnostics')
     args = parser.parse_args()
     require(args.timeout > 0, 'The health timeout must be positive')
     prefix = f'unifi-sms-upgrade-smoke-{uuid4().hex[:12]}'
+    artifacts_dir = args.artifacts_dir or Path(tempfile.gettempdir()) / f'{prefix}-artifacts'
     previous, candidate, volume = f'{prefix}-previous', f'{prefix}-candidate', f'{prefix}-data'
     created = []
     volume_created = False
@@ -219,11 +251,21 @@ def main():
         for path in ('/', '/settings/device/', '/settings/smtp/'):
             require(fresh.request(path).status == 200, f'Upgraded page failed: {path}')
         print('PASS: existing administrator can sign in; setup stays closed and settings pages open', flush=True)
+        verify_cycle(candidate, client.base_url, credentials, args.timeout, artifacts_dir)
+        final = state(candidate, fields=before['fields'], identities=before['identities'])
+        for category in ('logical_rows', 'files', 'effective_device', 'effective_smtp'):
+            require(before[category] == final[category], f'Post-upgrade cycle changed original {category}')
+        check_administrator(candidate)
+        print('PASS: original administrator, settings, SMS, and receipts remain intact after the full cycle', flush=True)
+
     except Exception:
         for name in created:
             print(f'Container logs ({name}):', file=sys.stderr)
             try:
-                print(docker('logs', '--tail', '100', name), file=sys.stderr)
+                logs = docker('logs', '--tail', '100', name)
+                print(logs, file=sys.stderr)
+                artifacts_dir.mkdir(parents=True, exist_ok=True)
+                (artifacts_dir / f'{name}.log').write_text(logs, encoding='utf-8')
             except Exception as error:
                 print(f'Could not read logs: {error}', file=sys.stderr)
         raise
