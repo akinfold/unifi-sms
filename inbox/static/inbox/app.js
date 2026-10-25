@@ -2,7 +2,7 @@
 const byId = (id) => document.getElementById(id);
 const token = document.querySelector("#csrf input").value;
 let phoneBusy = false, phoneTimer;
-let page = 1, pages = 1, selected = new Set(), opened = null, requestNumber = 0;
+let page = 1, pages = 1, selected = new Set(), opened = null, requestNumber = 0, detailRequestNumber = 0;
 const date = (value) => new Date(value).toLocaleString([], {dateStyle: "medium", timeStyle: "short"});
 const node = (tag, className, text) => { const item = document.createElement(tag); item.className = className; if (text !== undefined) item.textContent = text; return item; };
 function showError(error) { byId("alert").textContent = error.message; byId("alert").hidden = false; }
@@ -36,6 +36,29 @@ function forwardingStatus(message, enabled) {
   }
   return status;
 }
+function webhookStatus(message, enabled) {
+  if (!enabled) return document.createDocumentFragment();
+  const states = {
+    sent: ["Webhook sent", "The webhook endpoint accepted this message with a 2xx response. This does not confirm downstream processing."],
+    pending: ["Webhook pending", "Waiting for the next delivery attempt."],
+    error: ["Webhook error", "The last delivery attempt failed. Automatic retries are scheduled."],
+    not_queued: ["Webhook not queued", "This SMS has no webhook delivery job. Only new, complete messages received while the webhook is enabled are queued."]
+  };
+  const webhook = message.webhook || {};
+  const state = Object.hasOwn(states, webhook.state) ? webhook.state : "not_queued";
+  const [label, description] = states[state];
+  const status = node("div", "webhook-status");
+  const badge = node("span", `webhook-label webhook-${state}`, label);
+  badge.title = description;
+  status.append(badge);
+  if (state === "sent" && webhook.sent_at) {
+    const sentAt = node("time", "webhook-sent-at", `Sent ${date(webhook.sent_at)}`);
+    sentAt.dateTime = webhook.sent_at;
+    sentAt.title = new Date(webhook.sent_at).toLocaleString();
+    status.append(sentAt);
+  }
+  return status;
+}
 function selection() {
   byId("selection-count").textContent = selected.size ? `${selected.size} selected` : "Select messages";
   byId("delete").disabled = !selected.size;
@@ -46,14 +69,16 @@ function selection() {
 async function load() {
   const sequence = ++requestNumber;
   try {
+    const requestedOpened = opened;
     const query = new URLSearchParams({page, q: byId("search").value, unread: byId("unread").checked ? "1" : "0"});
-    if (opened !== null) query.set("opened", opened);
+    if (requestedOpened !== null) query.set("opened", requestedOpened);
     const data = await api(`/api/messages/?${query}`);
-    if (sequence !== requestNumber) return;
+    if (sequence !== requestNumber || requestedOpened !== opened) return;
     page = data.page; pages = data.pages; selected.clear();
     byId("count").textContent = data.count;
     byId("list").replaceChildren();
     if (!data.forwarding_enabled && byId("reader-forwarding")) byId("reader-forwarding").replaceChildren();
+    if (!data.webhook_enabled && byId("reader-webhook")) byId("reader-webhook").replaceChildren();
     if (!data.messages.length) byId("list").append(node("div", "empty", byId("search").value || byId("unread").checked ? "No messages match your filters." : "Your inbox is ready. New messages will appear here automatically."));
     for (const message of data.messages) {
       const row = node("div", `message-row ${message.read ? "" : "unread"} ${opened === message.id ? "active" : ""}`);
@@ -66,24 +91,31 @@ async function load() {
       button.append(top, receivedAt, node("p", "preview", message.text));
       if (message.total_parts > 1 || message.pending_cleanup) button.append(node("span", "badge", message.pending_cleanup ? "Awaiting device cleanup" : `${message.saved_parts}/${message.total_parts} parts saved`));
       button.append(forwardingStatus(message, data.forwarding_enabled));
+      button.append(webhookStatus(message, data.webhook_enabled));
       button.addEventListener("click", () => openMessage(message.id));
       row.append(checkbox, button); byId("list").append(row);
     }
     if (data.opened_forwarding?.id === opened && byId("reader-forwarding")) byId("reader-forwarding").replaceChildren(forwardingStatus(data.opened_forwarding, data.forwarding_enabled));
+    if (data.opened_webhook?.id === opened && byId("reader-webhook")) byId("reader-webhook").replaceChildren(webhookStatus(data.opened_webhook, data.webhook_enabled));
     byId("page-label").textContent = `Page ${page} of ${pages}`;
     byId("previous").disabled = page <= 1; byId("next").disabled = page >= pages; selection();
   } catch (error) { showError(error); }
 }
 async function openMessage(id) {
+  const sequence = ++detailRequestNumber;
   try {
-    const message = await api(`/api/messages/${id}/`, {}); opened = id;
+    const message = await api(`/api/messages/${id}/`, {});
+    if (sequence !== detailRequestNumber) return;
+    opened = id;
     const head = node("div", "reader-head"); head.append(node("div", "eyebrow", "RECEIVED MESSAGE"), node("h2", "reader-sender", message.sender), node("p", "muted", date(message.received_at)));
     const body = node("div", "message-body", message.text);
     const note = node("p", "footnote", message.pending_cleanup ? "Saved in your archive. Device cleanup is pending." : "Saved in your archive. Device slot cleared.");
     if (message.saved_parts < message.total_parts) head.append(node("p", "badge", `Incomplete message: ${message.saved_parts} of ${message.total_parts} parts saved.`));
     const forwarding = node("div", "reader-forwarding"); forwarding.id = "reader-forwarding";
     forwarding.append(forwardingStatus(message, message.forwarding_enabled));
-    byId("reader").replaceChildren(head, forwarding, body, note); await load();
+    const webhook = node("div", "reader-webhook"); webhook.id = "reader-webhook";
+    webhook.append(webhookStatus(message, message.webhook_enabled));
+    byId("reader").replaceChildren(head, forwarding, webhook, body, note); await load();
   } catch (error) { showError(error); }
 }
 function renderPhone(data) {

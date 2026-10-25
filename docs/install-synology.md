@@ -41,7 +41,7 @@ In **Container Manager → Project → Create**, set the project name to **`unif
 ```yaml
 services:
   app:
-    image: ghcr.io/akinfold/unifi-sms:0.1.4
+    image: ghcr.io/akinfold/unifi-sms:0.1.5
     container_name: unifi-sms-app
     restart: unless-stopped
     ports:
@@ -77,7 +77,7 @@ Before deploying, replace **both occurrences of `10.20.30.10`** with your NAS's 
 The example uses [GHCR](https://github.com/users/akinfold/packages/container/package/unifi-sms). To use [Docker Hub](https://hub.docker.com/r/akinfold/unifi-sms/tags), replace only the `image:` line before deploying:
 
 ```yaml
-    image: docker.io/akinfold/unifi-sms:0.1.4
+    image: docker.io/akinfold/unifi-sms:0.1.5
 ```
 
 Both registries provide the same release for Linux AMD64 and ARM64 without a login. Keep the data volume and other settings unchanged when switching registries.

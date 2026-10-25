@@ -1,7 +1,7 @@
 name: unifi-sms
 services:
   app:
-    image: unifi-sms:0.1.4
+    image: unifi-sms:0.1.5
     build: .
     container_name: unifi-sms-app
     restart: unless-stopped

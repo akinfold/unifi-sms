@@ -28,7 +28,7 @@ concurrency:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     env:
       DATA_DIR: /tmp/unifi-sms-ci-data
     steps:
@@ -44,6 +44,8 @@ jobs:
           cache-dependency-path: |
             requirements.txt
             requirements-dev.txt
+            scripts/requirements-ui.txt
+            scripts/requirements-integrations.txt
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
@@ -90,12 +92,46 @@ jobs:
           git show "$SMOKE_TEST_REF:scripts/smoke_install.py" > "$SMOKE_TEST_DIR/smoke_install.py"
           git show "$SMOKE_TEST_REF:scripts/smoke_upgrade.py" > "$SMOKE_TEST_DIR/smoke_upgrade.py"
           git show "$SMOKE_TEST_REF:scripts/smoke_sms.py" > "$SMOKE_TEST_DIR/smoke_sms.py"
+          git show "$SMOKE_TEST_REF:scripts/smoke_forwarding_ui.py" > "$SMOKE_TEST_DIR/smoke_forwarding_ui.py"
+          git show "$SMOKE_TEST_REF:scripts/smoke_integrations.py" > "$SMOKE_TEST_DIR/smoke_integrations.py"
+          git show "$SMOKE_TEST_REF:scripts/requirements-integrations.txt" > "$SMOKE_TEST_DIR/requirements-integrations.txt"
+          git show "$SMOKE_TEST_REF:scripts/requirements-ui.txt" > "$SMOKE_TEST_DIR/requirements-ui.txt"
           git show "$SMOKE_TEST_REF:.github/scripts/previous-release.cjs" > "$SMOKE_TEST_DIR/previous-release.cjs"
           echo "SMOKE_TEST_DIR=$SMOKE_TEST_DIR" >> "$GITHUB_ENV"
+      - name: Install browser and MCP test dependencies
+        run: |
+          python -m pip install -r "$SMOKE_TEST_DIR/requirements-integrations.txt"
+          python -m playwright install --with-deps chromium
       - name: Verify fresh installation and administrator setup
         run: python "$SMOKE_TEST_DIR/smoke_install.py" --image unifi-sms:ci
       - name: Verify SMS import, durable storage, slot cleanup, and email delivery
         run: python "$SMOKE_TEST_DIR/smoke_sms.py" --image unifi-sms:ci
+      - name: Verify email forwarding statuses, sent times, and disabled visibility
+        id: forwarding-ui
+        run: >-
+          python "$SMOKE_TEST_DIR/smoke_forwarding_ui.py" --image unifi-sms:ci
+          --artifacts-dir "$RUNNER_TEMP/unifi-sms-forwarding-ui"
+      - name: Upload forwarding UI failure diagnostics
+        if: failure() && steps.forwarding-ui.outcome == 'failure'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: forwarding-ui-failure
+          path: ${{ runner.temp }}/unifi-sms-forwarding-ui
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Verify REST API, MCP, webhooks, and integration statuses
+        id: integrations
+        run: >-
+          python "$SMOKE_TEST_DIR/smoke_integrations.py" --image unifi-sms:ci
+          --artifacts-dir "$RUNNER_TEMP/unifi-sms-integrations"
+      - name: Upload integration failure diagnostics
+        if: failure() && steps.integrations.outcome == 'failure'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: integrations-failure
+          path: ${{ runner.temp }}/unifi-sms-integrations
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Select the previous stable release
         id: previous
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0

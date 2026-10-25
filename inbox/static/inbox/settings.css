@@ -152,3 +152,9 @@
 .device-wizard #copy-status { margin-left: 10px; color: #465468; font-size: 12px; }
 .device-wizard .wizard-phone { display: inline-block; margin: 0 10px 4px 0; }
 @media (max-width: 640px) { .device-wizard .wizard-progress li { padding: 8px 4px; font-size: 11px; } .device-wizard .device-facts { grid-template-columns: 1fr; } .device-wizard .device-facts-wide { grid-column: auto; } .device-wizard .wizard-actions { align-items: stretch; flex-direction: column; } .device-wizard .wizard-primary { justify-content: center; width: 100%; } .device-wizard .wizard-quiet { text-align: left; } }
+
+.integration-endpoint { display: grid; gap: 8px; margin-bottom: 22px; color: #465468; font-size: 12px; }
+.integration-endpoint > code { padding: 10px 12px; border-radius: 5px; background: #f3f5f8; overflow-wrap: anywhere; }
+.integration-key-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 16px; }
+.settings-tabs { flex-wrap: wrap; gap: 12px 24px; }
+#integration-settings .errorlist, #webhook-settings .errorlist { margin: 0; padding-left: 18px; color: #a52c2c; font-size: 12px; }

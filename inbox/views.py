@@ -17,8 +17,11 @@ from django.views.decorators.http import require_GET, require_POST
 
 from .device import configured, device_status, phone_status, request_phone_refresh
 from .forms import AdminAuthenticationForm, SetupForm
-from .models import AccessWindow, ForwardDelivery, Installation, Message, Receipt, SyncStatus
+from .models import (
+    AccessWindow, ForwardDelivery, Installation, Message, Receipt, SyncStatus, WebhookDelivery,
+)
 from .smtp_config import smtp_forwarding_active
+from .webhook_config import webhook_active
 
 
 def initialized():
@@ -120,6 +123,23 @@ def serialize_forwarding(message):
     return forwarding
 
 
+def serialize_webhook(message):
+    try:
+        delivery = message.webhook
+    except WebhookDelivery.DoesNotExist:
+        delivery = None
+    return {
+        "state": "not_queued"
+        if delivery is None
+        else "sent"
+        if delivery.sent_at
+        else "error"
+        if delivery.last_error
+        else "pending",
+        "sent_at": delivery.sent_at.isoformat() if delivery and delivery.sent_at else None,
+    }
+
+
 def serialize(message, full=False):
     return {
         "id": message.id,
@@ -131,13 +151,14 @@ def serialize(message, full=False):
         "total_parts": message.total_parts,
         "pending_cleanup": message.receipts.filter(cleared_at__isnull=True).exists(),
         "forwarding": serialize_forwarding(message),
+        "webhook": serialize_webhook(message),
     }
 
 
 @require_GET
 @admin_required
 def message_list(request):
-    messages = Message.objects.select_related("forwarding")
+    messages = Message.objects.select_related("forwarding", "webhook")
     query = request.GET.get("q", "")[:200]
     if query:
         messages = messages.filter(Q(sender__icontains=query) | Q(text__icontains=query))
@@ -149,7 +170,7 @@ def message_list(request):
     except ValueError:
         opened_id = 0
     opened_message = (
-        Message.objects.select_related("forwarding").filter(pk=opened_id).first()
+        Message.objects.select_related("forwarding", "webhook").filter(pk=opened_id).first()
         if 0 < opened_id <= 2**63 - 1 else None
     )
     return JsonResponse(
@@ -159,7 +180,12 @@ def message_list(request):
                 "id": opened_message.pk,
                 "forwarding": serialize_forwarding(opened_message),
             } if opened_message else None,
+            "opened_webhook": {
+                "id": opened_message.pk,
+                "webhook": serialize_webhook(opened_message),
+            } if opened_message else None,
             "forwarding_enabled": smtp_forwarding_active(),
+            "webhook_enabled": webhook_active(),
             "page": page.number,
             "pages": page.paginator.num_pages,
             "count": page.paginator.count,
@@ -172,14 +198,18 @@ def message_list(request):
 @admin_required
 def message_detail(request, pk):
     try:
-        message = Message.objects.select_related("forwarding").get(pk=pk)
+        message = Message.objects.select_related("forwarding", "webhook").get(pk=pk)
     except Message.DoesNotExist:
         return JsonResponse({"error": "Message not found."}, status=404)
     if message.read_at is None:
         message.read_at = timezone.now()
         message.save(update_fields=["read_at"])
     return JsonResponse(
-        {**serialize(message, full=True), "forwarding_enabled": smtp_forwarding_active()}
+        {
+            **serialize(message, full=True),
+            "forwarding_enabled": smtp_forwarding_active(),
+            "webhook_enabled": webhook_active(),
+        }
     )
 
 

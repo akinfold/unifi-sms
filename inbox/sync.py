@@ -13,6 +13,7 @@ from .models import Message, Receipt, SyncStatus
 from .device import refresh_phone
 from .views import initialized
 from .forwarding import queue_forward
+from .webhooks import queue_webhook
 
 
 def fingerprint(source, pdu):
@@ -88,6 +89,7 @@ def archive(source, slot, pdu):
         message.read_at = None
         message.save()
         queue_forward(message)
+        queue_webhook(message)
         return receipt
 
 

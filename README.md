@@ -1,6 +1,6 @@
 # UniFi SMS
 
-A private SMS inbox for your UniFi LTE Pro. Keep a searchable archive, forward new messages to email, and free the device's SMS slots automatically — from one Docker container.
+A private SMS inbox for your UniFi LTE Pro. Archive messages, forward them to email or webhooks, and connect your tools through REST API or MCP — from one Docker container. Messages are saved before their slots are freed on the device.
 
 [![CI](https://github.com/akinfold/unifi-sms/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/akinfold/unifi-sms/actions/workflows/ci.yml)
 [![GitHub release](https://img.shields.io/github/v/release/akinfold/unifi-sms?logo=github)](https://github.com/akinfold/unifi-sms/releases/latest)
@@ -12,7 +12,8 @@ A private SMS inbox for your UniFi LTE Pro. Keep a searchable archive, forward n
 
 - **Keep the messages, free the slots.** SMS are saved to a local SQLite archive before their copies are removed from the device.
 - **Find what you need.** Search your inbox, check received dates, read a message, or delete selected messages from the archive.
-- **Get new SMS by email.** Optional SMTP forwarding brings new messages to your existing inbox, with a test-email button to check your settings.
+- **Get new SMS by email.** Optional SMTP forwarding brings new messages to your existing inbox, with a test-email button and delivery status for each message.
+- **Connect your tools.** REST API and MCP let scripts and compatible clients manage the archive using separate access keys. Webhooks deliver new SMS to your applications, with optional authentication, retries, and delivery status. [Set up integrations](#connect-scripts-mcp-clients-and-webhooks).
 - **Set up SSH in the browser.** Find the device or enter its address, use a password or SSH key, and approve its fingerprint. The wizard can generate a key and explain how to add it to UniFi Network.
 - **Run it on your server or NAS.** The web application and background importer share one container and one persistent data volume.
 
@@ -37,11 +38,11 @@ Run on the Docker host:
 ```sh
 mkdir -p unifi-sms
 cd unifi-sms
-curl -fsSL https://raw.githubusercontent.com/akinfold/unifi-sms/v0.1.4/compose.ghcr.yaml -o compose.yaml
+curl -fsSL https://raw.githubusercontent.com/akinfold/unifi-sms/v0.1.5/compose.ghcr.yaml -o compose.yaml
 docker compose up -d
 ```
 
-This downloads the release Compose file and starts the public `0.1.4` image from GHCR. Docker downloads the image automatically. Prefer Docker Hub? [Switch the image below](#choose-your-registry).
+This downloads the release Compose file and starts the public `0.1.5` image from GHCR. Docker downloads the image automatically. Prefer Docker Hub? [Switch the image below](#choose-your-registry).
 
 ### 2. Create your administrator
 
@@ -68,13 +69,13 @@ Both images are public and support the same architectures. No registry login is 
 
 | Registry | Image |
 | --- | --- |
-| [GitHub Container Registry](https://github.com/users/akinfold/packages/container/package/unifi-sms) | `ghcr.io/akinfold/unifi-sms:0.1.4` |
-| [Docker Hub](https://hub.docker.com/r/akinfold/unifi-sms) | `docker.io/akinfold/unifi-sms:0.1.4` |
+| [GitHub Container Registry](https://github.com/users/akinfold/packages/container/package/unifi-sms) | `ghcr.io/akinfold/unifi-sms:0.1.5` |
+| [Docker Hub](https://hub.docker.com/r/akinfold/unifi-sms) | `docker.io/akinfold/unifi-sms:0.1.5` |
 
 To use Docker Hub, replace the `image:` line in `compose.yaml` with:
 
 ```yaml
-    image: docker.io/akinfold/unifi-sms:${IMAGE_TAG:-0.1.4}
+    image: docker.io/akinfold/unifi-sms:${IMAGE_TAG:-0.1.5}
 ```
 
 Run `docker compose up -d` again. Keep the same Compose project and data volume when switching registries.
@@ -85,7 +86,46 @@ Open **Settings → Email forwarding**, enter your SMTP settings, sender, and re
 
 The test uses the current form values without saving them; leave the password blank to use the saved password. New, complete messages are queued while forwarding is enabled. Existing messages are not sent retroactively. Failed deliveries are retried without blocking archiving; see [email delivery behavior](docs/behavior.md#email-delivery) for details.
 
-Device access and SMTP are configured in the web interface. No connection settings are needed in `.env`; legacy `LTE_*` and `SMTP_*` variables are ignored.
+While forwarding is enabled and configured, the inbox and message reader show **Email pending**, **Email error**, or **Email sent**. Sent messages include the sending time. **Email not queued** means no delivery was scheduled for that SMS. Turning forwarding off hides these labels and sending times.
+
+Device access and forwarding are configured in the web interface. No connection settings are needed in `.env`; legacy `LTE_*` and `SMTP_*` variables are ignored.
+
+## Connect scripts, MCP clients, and webhooks
+
+**Available in 0.1.5:** manage the archive through REST API or MCP, and forward new SMS to webhooks. See the [0.1.5 release notes](docs/release-notes/0.1.5.md) for changes and upgrade instructions.
+
+REST API, MCP, and webhook forwarding are independent options, **disabled by default**. Configure them in the web interface; no additional container environment variables are required.
+
+### Enable REST API or MCP
+
+1. Open **Settings → API and MCP** and enable the integration you need.
+2. Select **Generate key** or enter your own key with 32–256 printable ASCII characters and no spaces. Use a different key for each integration.
+3. Copy each key before selecting **Save settings**. Only its hash is stored; the saved key cannot be displayed again.
+4. Configure your client with the endpoint shown in settings and the header `Authorization: Bearer YOUR_KEY`. Use HTTPS for access over a network.
+
+| Integration | Endpoint | What you can do |
+| --- | --- | --- |
+| REST API | `/api/v1/messages/` | List, search, read, create, update, and delete archive records over HTTP. |
+| MCP | `/mcp/` | Use `list_sms`, `get_sms`, `create_sms`, `update_sms`, and `delete_sms` from a compatible client. |
+
+Each key grants read and write access to the entire archive. An administrator's browser session does not replace a key. Replacing a key invalidates the old one after saving; turning off an integration pauses access while retaining its key. To remove a key, turn off the integration, choose **Revoke key**, and save.
+
+MCP clients must support **Streamable HTTP** and a custom Bearer authorization header. Creating a record through REST or MCP only adds it to the archive: it does not send a cellular SMS or trigger email or webhook forwarding.
+
+See [REST API examples](docs/integrations.md#use-the-rest-api) and [MCP client configuration](docs/integrations.md#connect-an-mcp-client) for request formats and limits.
+
+### Forward new SMS to a webhook
+
+1. Open **Settings → Webhooks** and enter a destination URL that accepts JSON POST requests.
+2. If the receiver requires authentication, enter a secret and its header name. The default header is `X-Webhook-Secret`. Use HTTPS outside a trusted local network.
+3. Select **Enable webhook forwarding** and **Save settings**.
+4. Import a new SMS and check its webhook status in the inbox or message reader.
+
+Only new, complete SMS imported while forwarding is enabled and configured are queued. Email and webhook forwarding can run together. A 2xx response marks a webhook as sent; failed requests retry automatically. The receiver should deduplicate by the stable `event_id` or matching `Idempotency-Key` header.
+
+The inbox and reader show **Webhook pending**, **Webhook error**, or **Webhook sent**. Sent messages include the sending time. **Webhook not queued** means no delivery was scheduled. Disabling forwarding hides its labels and sending times and pauses pending deliveries; re-enabling resumes them using the current destination and secret.
+
+See [webhook setup, payloads, and retry behavior](docs/integrations.md#forward-new-sms-to-a-webhook) for details.
 
 ## Access from another computer
 
@@ -126,6 +166,19 @@ Choose a version from [GitHub releases](https://github.com/akinfold/unifi-sms/re
 
 Upgrading from `0.1.0`? Release `0.1.1` verifies the SSH host key before sending credentials. Devices limited to SHA-1 SSH algorithms need a firmware or SSH configuration update; see the [security policy](SECURITY.md#supported-versions).
 
+## Checks before image publication
+
+The release workflow validates the tagged source before publishing images to GHCR or Docker Hub. A failed check blocks both registries. Required checks cover:
+
+- Fresh installation and administrator creation.
+- Upgrades that preserve settings, the administrator account, and SMS.
+- SMS import, database storage, device slot cleanup, and email delivery with simulated LTE Pro and SMTP servers.
+- Email delivery labels, sending times, and hiding statuses when forwarding is disabled.
+- REST API and MCP key authentication, rotation, revocation, and SMS CRUD, including an official MCP SDK client.
+- Webhook delivery, retries, the optional secret header, duplicate handling, and delivery labels and times in Chromium.
+
+The container checks use disposable data and synthetic messages. See [release validation](docs/releases.md) for coverage and [local validation commands](docs/development.md#validate-integrations-in-the-container).
+
 ## Troubleshooting
 
 Check the container with `docker compose ps`. For startup errors, run `docker compose logs --tail=100 app`.
@@ -145,7 +198,9 @@ Check the container with `docker compose ps`. For startup errors, run `docker co
 - [First launch, SSH credentials, and key setup](docs/nas-first-run.md)
 - [Backups, migration, upgrades, HTTPS, and password recovery](docs/nas-maintenance.md)
 - [Discovery, SMS cleanup, and email delivery: behavior and limits](docs/behavior.md)
+- [REST API, MCP, and webhook setup](docs/integrations.md)
 - [Source builds, development, and validation](docs/development.md)
+- [What changed in 0.1.5](docs/release-notes/0.1.5.md)
 - [Release publishing and registry descriptions](docs/releases.md)
 - [Report a bug or suggest a feature](https://github.com/akinfold/unifi-sms/issues)
 
