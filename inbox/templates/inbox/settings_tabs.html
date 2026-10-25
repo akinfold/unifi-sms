@@ -1,4 +1,6 @@
 <nav class="settings-tabs" aria-label="Settings sections">
   <a href="{% url 'device-settings' %}" {% if request.resolver_match.url_name == 'device-settings' %}aria-current="page"{% endif %}>Device</a>
   <a href="{% url 'smtp-settings' %}" {% if request.resolver_match.url_name == 'smtp-settings' %}aria-current="page"{% endif %}>Email forwarding</a>
+  <a href="{% url 'webhook-settings' %}" {% if request.resolver_match.url_name == 'webhook-settings' %}aria-current="page"{% endif %}>Webhooks</a>
+  <a href="{% url 'integration-settings' %}" {% if request.resolver_match.url_name == 'integration-settings' %}aria-current="page"{% endif %}>API and MCP</a>
 </nav>

@@ -153,3 +153,42 @@ class ForwardDelivery(models.Model):
 
     class Meta:
         indexes = [models.Index(fields=["sent_at", "next_attempt_at"], name="forward_due_idx")]
+
+
+class IntegrationSettings(models.Model):
+    id = models.PositiveSmallIntegerField(primary_key=True, default=1)
+    rest_enabled = models.BooleanField(default=False)
+    rest_key_hash = models.TextField(blank=True)
+    rest_key_suffix = models.CharField(max_length=4, blank=True)
+    mcp_enabled = models.BooleanField(default=False)
+    mcp_key_hash = models.TextField(blank=True)
+    mcp_key_suffix = models.CharField(max_length=4, blank=True)
+
+
+class WebhookSettings(models.Model):
+    id = models.PositiveSmallIntegerField(primary_key=True, default=1)
+    enabled = models.BooleanField(default=False)
+    url = models.CharField(max_length=2048, blank=True)
+    secret = models.TextField(blank=True)
+    secret_header = models.CharField(max_length=128, default="X-Webhook-Secret", blank=True)
+
+    def save(self, *args, **kwargs):
+        from .connection import encrypt_secret, is_encrypted_secret
+
+        if self.secret and not is_encrypted_secret(self.secret):
+            self.secret = encrypt_secret(self.secret)
+        super().save(*args, **kwargs)
+
+
+class WebhookDelivery(models.Model):
+    message = models.OneToOneField(Message, on_delete=models.CASCADE, related_name="webhook")
+    token = models.UUIDField(default=uuid.uuid4, editable=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    sent_at = models.DateTimeField(null=True)
+    attempts = models.PositiveIntegerField(default=0)
+    next_attempt_at = models.DateTimeField(default=timezone.now)
+    last_error = models.CharField(max_length=250, blank=True)
+    payload = models.JSONField(default=dict)
+
+    class Meta:
+        indexes = [models.Index(fields=["sent_at", "next_attempt_at"], name="webhook_due_idx")]

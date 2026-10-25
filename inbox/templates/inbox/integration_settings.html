@@ -1,0 +1,40 @@
+{% extends 'inbox/base.html' %}{% load static %}
+{% block title %}API and MCP · UniFi SMS{% endblock %}
+{% block extra_styles %}<link rel="stylesheet" href="{% static 'inbox/settings.css' %}">{% endblock %}
+{% block content %}
+<main class="workspace settings-workspace">
+  {% include 'inbox/settings_tabs.html' %}
+  <section class="page-heading"><div><div class="eyebrow">SETTINGS</div><h1>API and MCP</h1><p class="muted">Connect scripts and MCP clients to your SMS archive. Each integration uses its own access key.</p></div></section>
+  {% if messages %}<div class="settings-alert success" role="status">{% for message in messages %}{{ message }}{% endfor %}</div>{% endif %}
+  <section class="settings-card">
+    <form method="post" autocomplete="off" novalidate id="integration-settings" data-key-url="{% url 'generate-integration-key' %}">
+      {% csrf_token %}
+      {% if form.errors %}<div class="settings-alert form-errors" role="alert"><strong>Settings were not saved.</strong> Check the highlighted fields below.{{ form.non_field_errors }}</div>{% endif %}
+      <fieldset class="settings-section">
+        <legend>REST API</legend>
+        <p class="section-help">List, read, create, update and delete archived SMS. Creating a record does not send an SMS or forward it.</p>
+        <div class="setting-toggle"><label for="id_rest_enabled">{{ form.rest_enabled }}<span><strong>Enable REST API</strong><small>Disabled by default. The key grants read and write access to all SMS.</small></span></label>{{ form.rest_enabled.errors }}</div>
+        <div class="integration-endpoint"><strong>Endpoint</strong><code>{{ rest_endpoint }}</code><small>Send the key as <code>Authorization: Bearer YOUR_KEY</code>.</small></div>
+        <div class="settings-grid">
+          <div class="setting-field"><label for="id_rest_key_action">Saved key</label>{{ form.rest_key_action }}<small>{% if rest_has_key %}A key ending in <strong>{{ rest_suffix }}</strong> is saved. Its full value cannot be retrieved.{% else %}No key saved. Enter or generate one below.{% endif %}</small>{{ form.rest_key_action.errors }}</div>
+          <div class="setting-field">{{ form.rest_key.label_tag }}{{ form.rest_key }}<small>Leave blank to keep the saved key. Use 32–256 characters without spaces.</small>{{ form.rest_key.errors }}<div class="integration-key-actions"><button type="button" class="test-email-button" data-generate-key="rest">Generate key</button><button type="button" class="text-action" data-reveal-key="rest" aria-controls="id_rest_key" aria-pressed="false">Show key</button><button type="button" class="text-action" data-copy-key="rest">Copy key</button></div></div>
+        </div>
+      </fieldset>
+      <fieldset class="settings-section">
+        <legend>MCP</legend>
+        <p class="section-help">Use SMS tools from an MCP client that supports Streamable HTTP and custom Bearer authorization.</p>
+        <div class="setting-toggle"><label for="id_mcp_enabled">{{ form.mcp_enabled }}<span><strong>Enable MCP</strong><small>Disabled by default. The key grants read and write access to all SMS through MCP tools.</small></span></label>{{ form.mcp_enabled.errors }}</div>
+        <div class="integration-endpoint"><strong>Endpoint</strong><code>{{ mcp_endpoint }}</code><small>Send the key as <code>Authorization: Bearer YOUR_KEY</code>.</small></div>
+        <div class="settings-grid">
+          <div class="setting-field"><label for="id_mcp_key_action">Saved key</label>{{ form.mcp_key_action }}<small>{% if mcp_has_key %}A key ending in <strong>{{ mcp_suffix }}</strong> is saved. Its full value cannot be retrieved.{% else %}No key saved. Enter or generate one below.{% endif %}</small>{{ form.mcp_key_action.errors }}</div>
+          <div class="setting-field">{{ form.mcp_key.label_tag }}{{ form.mcp_key }}<small>Leave blank to keep the saved key. Use 32–256 characters without spaces.</small>{{ form.mcp_key.errors }}<div class="integration-key-actions"><button type="button" class="test-email-button" data-generate-key="mcp">Generate key</button><button type="button" class="text-action" data-reveal-key="mcp" aria-controls="id_mcp_key" aria-pressed="false">Show key</button><button type="button" class="text-action" data-copy-key="mcp">Copy key</button></div></div>
+        </div>
+      </fieldset>
+      <p class="section-help">Copy a new key before saving. Only its hash is stored. Replacing or revoking a key invalidates it immediately after saving. Turn off an integration to pause access while keeping its key.</p>
+      <div class="settings-actions"><button type="submit" class="primary">Save settings</button><p class="settings-help">Generated keys are drafts until you save. Use HTTPS when accessing the service over a network.</p></div>
+      <p id="integration-key-status" class="test-email-status" role="status" aria-live="polite"></p>
+    </form>
+  </section>
+</main>
+{% endblock %}
+{% block scripts %}<script src="{% static 'inbox/integration_settings.js' %}" defer></script>{% endblock %}

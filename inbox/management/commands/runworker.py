@@ -6,10 +6,11 @@ from django.core.management.base import BaseCommand
 from django.db import close_old_connections
 from inbox.sync import refresh_phone_once, sync_once
 from inbox.forwarding import forward_pending
+from inbox.webhooks import deliver_webhooks
 
 
 class Command(BaseCommand):
-    help = "Import SMS, clear archived modem slots, and forward queued messages by SMTP."
+    help = "Import SMS, clear archived modem slots, and forward queued messages by email and webhook."
 
     def add_arguments(self, parser):
         parser.add_argument("--once", action="store_true")
@@ -25,6 +26,7 @@ class Command(BaseCommand):
             if time.monotonic() >= next_import:
                 sync_once()
                 forward_pending(stop=stop)
+                deliver_webhooks(stop=stop)
                 next_import = time.monotonic() + settings.POLL_INTERVAL
             if options["once"]:
                 return

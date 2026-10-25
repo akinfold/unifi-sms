@@ -2,7 +2,7 @@
 
 The [Publish release images workflow](../.github/workflows/release.yml) builds one image for **Linux AMD64 and ARM64** and publishes it to GHCR and Docker Hub when a GitHub release is published. Draft releases and ordinary pushes do not publish images.
 
-Every release runs CI against the exact tagged commit before publication. CI builds a local image, tests first-run setup, verifies an upgrade from the previous stable release, and checks the full SMS cycle with simulated LTE Pro and SMTP servers. A failed check blocks publication to both registries. Release builds use registry credentials only in the publishing job. Actions are pinned to commit SHAs and updated by Dependabot.
+Every release runs CI against the exact tagged commit before publication. CI builds a local image, tests first-run setup, verifies an upgrade from the previous stable release, checks the full SMS cycle with simulated LTE Pro and SMTP servers, verifies email forwarding statuses in Chromium, and checks REST API, MCP, and webhooks. A failed check blocks publication to both registries. Release builds use registry credentials only in the publishing job. Actions are pinned to commit SHAs and updated by Dependabot.
 
 ## Fresh installation gate
 
@@ -22,6 +22,36 @@ This gate runs in ordinary CI and before every release publication. A failed ass
 python scripts/smoke_sms.py --image unifi-sms:ci
 ```
 
+## Email forwarding UI gate
+
+CI opens the candidate image in Chromium and signs in through the login form. The check uses a disposable container and data volume with synthetic SMS and forwarding records. It runs the web server without the importer worker, so no device connection or email delivery occurs.
+
+The browser checks **Email sent**, **Email pending**, **Email error**, and **Email not queued** in both the inbox list and the message reader. A sent message must show its stored sending time in a visible, localized timestamp and the HTML `datetime` attribute. Its received time differs from its sending time to catch timestamp mix-ups. Unsent messages must have no sending timestamp.
+
+The check disables forwarding and refreshes the inbox with a sent message open. Status labels and sending times must disappear from the list and reader, including after opening another SMS and reloading the page. Re-enabling forwarding must restore them. The database must retain the original sending time and delivery attempt counts.
+
+This check runs in ordinary CI and release validation. A failure blocks publication to both registries. It uses the runner's native platform, Linux AMD64 in GitHub Actions. The test removes its temporary container and volume after each run; CI retains a failure screenshot and container logs for seven days.
+
+To run it locally against an existing image, install the browser test dependencies on the host:
+
+```sh
+python -m pip install -r scripts/requirements-ui.txt
+python -m playwright install --with-deps chromium
+python scripts/smoke_forwarding_ui.py --image unifi-sms:ci
+```
+
+## Integration gate
+
+CI starts the candidate image with a new data volume and signs in to its administrator interface in Chromium. REST API and MCP requests use actual HTTP connections; MCP checks use the official Python SDK. The check configures each integration through the settings pages and uses only synthetic SMS and credentials.
+
+The check verifies separate Bearer keys for REST API and MCP, rejection of missing or incorrect keys, and rejection of session-only access. It tests generated and manually supplied keys, rotation and revocation, disabled endpoints, and SMS creation, listing, reading, updating, and deletion through both interfaces.
+
+A local HTTP receiver rejects the first webhook with HTTP 503 and accepts its retry with HTTP 204. The check uses the application's queue and delivery functions to verify persisted retries, the payload, the configured secret header, an optional secret, a stable idempotency key, and no duplicate delivery. Chromium checks pending, error, and sent statuses, the sending timestamp, and hiding statuses when webhooks are disabled. Existing SMS cycle tests separately cover queueing webhooks after an imported SMS is committed.
+
+A failed check blocks publication to both registries. The test uses the runner's native platform, Linux AMD64 in GitHub Actions, and removes its temporary containers and volume after the run. CI retains failure diagnostics for seven days. It never uses an existing installation or external integration credentials.
+
+For local commands, see [Validate integrations in the container](development.md#validate-integrations-in-the-container).
+
 ## Upgrade gate
 
 CI selects the highest published stable version below the release being validated. For example, rebuilding `v0.1.2` tests an upgrade from `v0.1.1`, even if newer releases exist. A prerelease uses the previous stable version; drafts and prereleases are never upgrade sources. Ordinary branch and pull request CI uses the highest published stable release.
@@ -32,7 +62,7 @@ The candidate must preserve the administrator's password and permissions, existi
 
 The installation and upgrade smoke tests use separate temporary volumes and named containers, remove them after the run, and print container logs on failure. Fixture connection settings point only to the test container's loopback interface; no real device or SMTP server is contacted. The upgrade check runs on the runner's native platform, Linux AMD64 in GitHub Actions. It skips only when no earlier published stable release exists. A missing image, mismatched revision, download failure, or failed assertion blocks publication.
 
-For manual rebuilds of older releases, CI takes the smoke tests and version selector from the workflow commit while building the application from the resolved release commit. The old release does not need to contain the new scripts.
+For manual rebuilds of older releases, CI takes the smoke tests and version selector from the workflow commit while building the application from the resolved release commit. The old release does not need to contain the new scripts. The candidate must still pass every current gate; a release that predates a required integration will fail that integration check.
 
 ## Configure the registries once
 

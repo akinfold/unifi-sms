@@ -1,0 +1,34 @@
+{% extends 'inbox/base.html' %}{% load static %}
+{% block title %}Webhooks · UniFi SMS{% endblock %}
+{% block extra_styles %}<link rel="stylesheet" href="{% static 'inbox/settings.css' %}">{% endblock %}
+{% block content %}
+<main class="workspace settings-workspace">
+  {% include 'inbox/settings_tabs.html' %}
+  <section class="page-heading"><div><div class="eyebrow">SETTINGS</div><h1>Webhooks</h1><p class="muted">Send each new SMS to an HTTP endpoint after it is saved in your inbox.</p></div></section>
+  {% if messages %}<div class="settings-alert success" role="status">{% for message in messages %}{{ message }}{% endfor %}</div>{% endif %}
+  {% if config_error %}<div class="settings-alert form-errors" role="alert">The saved webhook secret cannot be decrypted. Replace or remove it before saving.</div>{% endif %}
+  <section class="settings-card">
+    <form method="post" autocomplete="off" novalidate id="webhook-settings">
+      {% csrf_token %}
+      {% if form.errors %}<div class="settings-alert form-errors" role="alert"><strong>Settings were not saved.</strong> Check the highlighted fields below.{{ form.non_field_errors }}</div>{% endif %}
+      <div class="setting-toggle"><label for="id_enabled">{{ form.enabled }}<span><strong>Enable webhook forwarding</strong><small>Disabled by default. Only new, complete SMS imported while forwarding is enabled are queued. Existing messages are not sent.</small></span></label>{{ form.enabled.errors }}</div>
+      <fieldset class="settings-section">
+        <legend>Destination</legend>
+        <div class="setting-field">{{ form.url.label_tag }}{{ form.url }}<small>Receive an HTTP POST with a JSON payload for each SMS. Use HTTPS for destinations outside a trusted local network.</small>{{ form.url.errors }}</div>
+      </fieldset>
+      <fieldset class="settings-section">
+        <legend>Optional authentication</legend>
+        <p class="section-help">The secret is sent as the value of your chosen HTTP header. For a Bearer token, use <code>Authorization</code> and enter <code>Bearer YOUR_TOKEN</code> as the secret.</p>
+        <div class="settings-grid">
+          <div class="setting-field">{{ form.secret_header.label_tag }}{{ form.secret_header }}<small>Default: <code>X-Webhook-Secret</code>. Required only when a secret is set.</small>{{ form.secret_header.errors }}</div>
+          <div class="setting-field">{{ form.secret.label_tag }}{{ form.secret }}<small>{% if has_secret %}A secret is saved and hidden. Leave blank to keep it, or enter a new value to replace it.{% else %}No secret saved. Leave blank to send without authentication.{% endif %}</small>{{ form.secret.errors }}</div>
+          <div class="setting-field"><label for="id_secret_action">Saved secret</label>{{ form.secret_action }}<small>Removing the saved secret sends future requests without an authentication header.</small>{{ form.secret_action.errors }}</div>
+        </div>
+      </fieldset>
+      <p class="section-help">A 2xx response marks delivery as sent. Failed requests are retried automatically, with the same event ID. Your receiver should ignore duplicate event IDs. Disabling forwarding pauses pending jobs; re-enabling resumes them using the current destination and secret.</p>
+      <div class="settings-actions"><button type="submit" class="primary">Save settings</button><p class="settings-help">Webhook status and sending time appear beside each SMS while forwarding is enabled and configured.</p></div>
+    </form>
+  </section>
+  <section class="delivery-summary"><strong>Delivery status</strong><span>{{ delivery_summary.pending }} pending</span>{% if delivery_summary.last_sent %}<span>Last sent {{ delivery_summary.last_sent|date:"Y-m-d H:i" }}</span>{% else %}<span>No webhook has been sent yet</span>{% endif %}</section>
+</main>
+{% endblock %}
