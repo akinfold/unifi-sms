@@ -19,9 +19,9 @@ Paramiko 5 removes SHA-1 SSH signatures and key exchanges. A device that only of
 ## Deployment boundaries
 
 - Keep the first-run administrator page on loopback, an SSH tunnel, or a trusted private network until the administrator exists. The first visitor can create that account.
-- Use HTTPS for access across an untrusted network. Enable proxy-header trust only behind a reverse proxy that replaces those headers.
+- Use HTTPS for browser, REST API, and MCP access across a network, or use an SSH tunnel. Enable proxy-header trust only behind a reverse proxy that replaces those headers, and list its immediate peer addresses in `TRUSTED_PROXY_CIDRS`.
 - Confirm the device's SSH fingerprint through a trusted channel before sending SSH credentials. A discovery result is not proof of device identity.
-- Protect the complete `/data` volume and its backups. They contain messages, credentials, and the persistent application secret. Device credentials are encrypted with that secret; SMTP passwords are stored in SQLite.
+- Protect the complete `/data` volume and its backups. They contain messages, credentials, and the persistent application secret. Device credentials, SMTP passwords, and webhook secrets are encrypted with that secret. The secret is stored in the same volume by default, so encryption does not protect against theft of the complete volume. Restrict backup access and encrypt backups separately. Older backups may still contain plaintext SMTP passwords.
 - Run one importer per device and keep other SMS deletion tools away from the modem. The archive cannot prevent an unrelated process from changing a slot between modem commands.
 
 See [behavior and limits](docs/behavior.md) for persistence, host-key checks, deletion, and email delivery guarantees.

@@ -1,4 +1,5 @@
 import os
+from ipaddress import ip_network
 from pathlib import Path
 from .secrets import persistent_secret
 
@@ -18,6 +19,7 @@ INSTALLED_APPS = [
     "inbox",
 ]
 MIDDLEWARE = [
+    "inbox.middleware.TrustedProxyMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
@@ -88,6 +90,12 @@ SECURE_SSL_REDIRECT = os.environ.get("REQUIRE_HTTPS", "0") == "1"
 SECURE_REDIRECT_EXEMPT = [r"^healthz/$"]
 SESSION_COOKIE_SECURE = CSRF_COOKIE_SECURE = SECURE_SSL_REDIRECT
 SECURE_HSTS_SECONDS = 31536000 if SECURE_SSL_REDIRECT else 0
-if os.environ.get("TRUST_PROXY", "0") == "1":
+TRUST_PROXY = os.environ.get("TRUST_PROXY", "0") == "1"
+TRUSTED_PROXY_CIDRS = tuple(
+    str(ip_network(value.strip(), strict=False))
+    for value in os.environ.get("TRUSTED_PROXY_CIDRS", "").split(",") if value.strip()
+)
+# Middleware removes forwarding headers from untrusted peers before Django reads them.
+if TRUST_PROXY:
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 POLL_INTERVAL = 60

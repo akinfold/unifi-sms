@@ -1,14 +1,20 @@
 # Publish release images
 
-The [Publish release images workflow](../.github/workflows/release.yml) builds one image for **Linux AMD64 and ARM64** and publishes it to GHCR and Docker Hub when a GitHub release is published. Draft releases and ordinary pushes do not publish images.
+The [Publish release images workflow](../.github/workflows/release.yml) builds and validates separate images for **Linux AMD64 and ARM64**, then publishes their combined image index to GHCR and Docker Hub when a GitHub release is published. Draft releases and ordinary pushes do not publish images.
 
-Every release runs CI against the exact tagged commit before publication. CI builds a local image, tests first-run setup, verifies an upgrade from the previous stable release, checks the full SMS cycle with simulated LTE Pro and SMTP servers, verifies email forwarding statuses in Chromium, and checks REST API, MCP, and webhooks. A failed check blocks publication to both registries. Release builds use registry credentials only in the publishing job. Actions are pinned to commit SHAs and updated by Dependabot.
+Every release runs CI against the exact tagged commit on native AMD64 and ARM64 runners. Each runner builds its image once, tests first-run setup, verifies an upgrade from the previous stable release, checks the full SMS cycle with simulated LTE Pro and SMTP servers, verifies email forwarding statuses in Chromium, and checks REST API, MCP, and webhooks. A named security regression step also checks authentication, encrypted SMTP credentials, proxy handling, SSH deadlines, and webhook deadlines. A failed check on either platform blocks publication to both registries. The stable `validate` check requires both platform jobs to succeed.
+
+After its gates pass, each runner saves the tested image as a Docker archive with its image ID, archive checksum, architecture, and release labels. Actions retains these artifacts for seven days. The publication job downloads both archives from the same workflow run, verifies their checksums and loaded image IDs, and promotes those images without rebuilding. It verifies each pushed manifest's config digest against the tested image ID before combining the platform manifests by immutable digest. Version and commit tags must resolve to the same index in both registries. Registry credentials are available only in the publishing job.
+
+The Dockerfile pins the multi-platform Python base image by digest. `requirements-runtime.lock.txt` contains wheel hashes for the unchanged versions in `requirements.txt`; Docker installs these packages with `--require-hashes --only-binary=:all:`. CI checks that the lock matches the version list and installs it before development tools. When changing a runtime version, update both files with hashes from that version's PyPI release and verify wheel availability for CPython 3.14 on both Linux platforms. Actions are pinned to commit SHAs and updated by Dependabot.
+
+Docker archives retain the validated image contents and labels. This promotion path disables BuildKit provenance attestations because the local Docker archive path does not preserve them consistently; the retained validation records are not signed provenance attestations.
 
 ## Fresh installation gate
 
 CI starts the locally built image with the deployment security options and an empty data volume. It waits for Docker health and checks the setup form, CSRF protection, the eight-character password minimum, administrator creation, device onboarding, logout, and login. It then restarts the container with the same volume and verifies that the administrator, authenticated session, and closed setup wizard persist. The test removes its temporary container and volume, including after a failure, and prints container logs on failure.
 
-This check runs in ordinary CI and release validation before either registry receives an image. It exercises the runner's native platform, Linux AMD64 in GitHub Actions; the release build still produces AMD64 and ARM64 images. It does not connect to an LTE device or SMTP server.
+This check runs in ordinary CI and release validation before either registry receives an image. It exercises both Linux AMD64 and ARM64 images on native GitHub Actions runners. It does not connect to an LTE device or SMTP server.
 
 ## SMS cycle gate
 
@@ -16,7 +22,7 @@ CI runs the candidate image in a disposable container with networking disabled. 
 
 The check runs the application's worker and verifies PDU decoding, sender and received time, message and receipt storage, slot rereading, slot deletion, and email delivery. When the device receives a delete command, the simulator opens a separate SQLite connection and requires the archived SMS to be committed already. The SMTP server first rejects delivery temporarily: the SMS must remain archived, its slot must be cleared, and a retry must be recorded. The next worker run must deliver the email with the correct SMTP envelope, headers, sender, received time, and Unicode text. A final worker run must leave the archive unchanged and send no duplicate email.
 
-This gate runs in ordinary CI and before every release publication. A failed assertion blocks both registries. It uses the runner's native platform, Linux AMD64 in GitHub Actions, and removes its temporary container and data volume after the run. To run it locally against an existing image:
+This gate runs in ordinary CI and before every release publication. A failed assertion blocks both registries. It runs on both native Linux AMD64 and ARM64 runners and removes its temporary container and data volume after the run. To run it locally against an existing image:
 
 ```sh
 python scripts/smoke_sms.py --image unifi-sms:ci
@@ -30,7 +36,7 @@ The browser checks **Email sent**, **Email pending**, **Email error**, and **Ema
 
 The check disables forwarding and refreshes the inbox with a sent message open. Status labels and sending times must disappear from the list and reader, including after opening another SMS and reloading the page. Re-enabling forwarding must restore them. The database must retain the original sending time and delivery attempt counts.
 
-This check runs in ordinary CI and release validation. A failure blocks publication to both registries. It uses the runner's native platform, Linux AMD64 in GitHub Actions. The test removes its temporary container and volume after each run; CI retains a failure screenshot and container logs for seven days.
+This check runs in ordinary CI and release validation. A failure blocks publication to both registries. It runs on both native Linux AMD64 and ARM64 runners. The test removes its temporary container and volume after each run; CI retains a failure screenshot and container logs for seven days.
 
 To run it locally against an existing image, install the browser test dependencies on the host:
 
@@ -48,7 +54,7 @@ The check verifies separate Bearer keys for REST API and MCP, rejection of missi
 
 A local HTTP receiver rejects the first webhook with HTTP 503 and accepts its retry with HTTP 204. The check uses the application's queue and delivery functions to verify persisted retries, the payload, the configured secret header, an optional secret, a stable idempotency key, and no duplicate delivery. Chromium checks pending, error, and sent statuses, the sending timestamp, and hiding statuses when webhooks are disabled. Existing SMS cycle tests separately cover queueing webhooks after an imported SMS is committed.
 
-A failed check blocks publication to both registries. The test uses the runner's native platform, Linux AMD64 in GitHub Actions, and removes its temporary containers and volume after the run. CI retains failure diagnostics for seven days. It never uses an existing installation or external integration credentials.
+A failed check blocks publication to both registries. The test runs on both native Linux AMD64 and ARM64 runners and removes its temporary containers and volume after the run. CI retains failure diagnostics for seven days. It never uses an existing installation or external integration credentials.
 
 For local commands, see [Validate integrations in the container](development.md#validate-integrations-in-the-container).
 
@@ -60,9 +66,9 @@ The check pulls that version from GHCR, verifies its source revision against the
 
 The candidate must preserve the administrator's password and permissions, existing session, all stored SMS fields and receipts, device and SMTP settings, encrypted SSH credentials, persistent application secret, and `known_hosts` file. The check also verifies credential decryption, SQLite integrity, a fresh administrator login, closed first-run setup, and access to the inbox and settings pages. New database columns are allowed; existing values must remain intact.
 
-The installation and upgrade smoke tests use separate temporary volumes and named containers, remove them after the run, and print container logs on failure. Fixture connection settings point only to the test container's loopback interface; no real device or SMTP server is contacted. The upgrade check runs on the runner's native platform, Linux AMD64 in GitHub Actions. It skips only when no earlier published stable release exists. A missing image, mismatched revision, download failure, or failed assertion blocks publication.
+The installation and upgrade smoke tests use separate temporary volumes and named containers, remove them after the run, and print container logs on failure. Fixture connection settings point only to the test container's loopback interface; no real device or SMTP server is contacted. The upgrade check runs on both native Linux AMD64 and ARM64 runners. It skips only when no earlier published stable release exists. A missing image, mismatched revision, download failure, or failed assertion blocks publication.
 
-For manual rebuilds of older releases, CI takes the smoke tests and version selector from the workflow commit while building the application from the resolved release commit. The old release does not need to contain the new scripts. The candidate must still pass every current gate; a release that predates a required integration will fail that integration check.
+For manual rebuilds of older releases, CI takes the smoke tests and version selector from the workflow commit while building the application from the resolved release commit. The old release does not need to contain the current smoke scripts. It must contain the runtime hash lock and pass every current gate, including the named security regressions; releases that lack these requirements cannot be republished through this workflow.
 
 ## Configure the registries once
 
@@ -104,7 +110,7 @@ No additional secret or registry setting is needed. README-only pushes do not ch
 
 The [Update Docker Hub description workflow](../.github/workflows/dockerhub-description.yml) updates the repository's full description whenever `README.md` or that workflow changes on `main`. It uses the latest README from the default branch and converts relative Markdown links to GitHub URLs.
 
-This workflow uses the Docker Hub settings above and does not build or push images. README-only pushes and pull requests also skip the CI workflow, which includes a Docker build. Image releases do not update Docker Hub's full description, so rebuilding an older release cannot overwrite it with an older README.
+This workflow uses the Docker Hub settings above and does not build or push images. README-only pushes skip the CI workflow, which includes a Docker build. Pull requests still run CI. Image releases do not update Docker Hub's full description, so rebuilding an older release cannot overwrite it with an older README.
 
 To update the description manually, open **Actions → Update Docker Hub description → Run workflow**, select `main`, and run it. Manual runs from other branches are skipped.
 
@@ -116,17 +122,17 @@ If an update fails, check that `DOCKERHUB_TOKEN` has **Read, Write, Delete** per
 2. Open **Releases → Draft a new release**, create a tag such as `v0.2.0` at the intended commit, and write the release notes. The commit must include this workflow for automatic publication.
 3. For a preview, use a tag such as `v0.2.0-rc.1` and select **Set as a pre-release**. The suffix and GitHub prerelease setting must agree. Build metadata suffixes such as `+build.1` are not supported as Docker tags.
 4. Select **Publish release**. Open **Actions → Publish release images** and wait for all jobs to pass.
-5. Check the run summary for image names, source commit, digest, and platforms. The workflow checks that both registries return the build's digest, AMD64 and ARM64 manifests, and the README description in the image index.
+5. Check the run summary for image names, source commit, digest, and platforms. The workflow checks that both registries return the same index digest, the tested AMD64 and ARM64 image config digests, and the README description in the image index.
 
 For release `v0.2.0`, the workflow publishes `0.2.0` and `sha-FULL_COMMIT_SHA` to both registries. It updates `latest` only when GitHub identifies that release as the latest stable release. Prereleases receive their full version tag, such as `0.2.0-rc.1`, and never update `latest`. Rebuilding an older release also leaves `latest` unchanged.
 
-Do not move a published release tag. A retry rebuilds the same source commit, but a changed base image can produce a different digest. Use a new version for source changes.
+Do not move a published release tag. Each retry builds and validates both platforms from the same source commit with its pinned base image and runtime hashes, then publishes only the archives from that run. Use a new version for source, base-image, or dependency changes.
 
 ## Build without publishing, or retry a release
 
-Open **Actions → Publish release images → Run workflow** on the default branch. Enter an **existing published release tag** and leave **Push images to both registries** unchecked to run CI and a multi-platform build without registry logins or pushes. The build checks both platforms and the description annotation in a temporary OCI archive; the archive is discarded with the runner. This mode can validate the workflow before Docker Hub credentials are configured.
+Open **Actions → Publish release images → Run workflow** on the default branch. Enter an **existing published release tag** and leave **Push images to both registries** unchecked to build and fully validate both native platform images without registry logins or pushes. The final job downloads the retained Docker archives and verifies their checksums, image IDs, architectures, release labels, and README description. It does not create a registry index in this mode. This mode can validate the workflow before Docker Hub credentials are configured.
 
-To publish an existing release or retry a failed upload, run the same workflow with the checkbox selected. A manual run can publish a tag created before this workflow was added. Arbitrary branches, unpublished tags, and draft releases are rejected.
+To publish an existing release or retry a failed upload, run the same workflow with the checkbox selected. The tagged source must include the runtime hash lock and pass all current security and compatibility gates. Arbitrary branches, unpublished tags, and draft releases are rejected.
 
 Uploads to separate registries are not atomic. If one upload succeeds and the other fails, fix access or connectivity and retry; the workflow republishes and verifies both version tags before updating `latest`. Runs for the same release do not cancel an active publication. Different release versions may build concurrently.
 

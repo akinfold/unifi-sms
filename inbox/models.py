@@ -3,6 +3,8 @@ import uuid
 from django.db import models
 from django.utils import timezone
 
+from .fields import EncryptedTextField
+
 
 class Installation(models.Model):
     id = models.PositiveSmallIntegerField(primary_key=True, default=1)
@@ -130,7 +132,7 @@ class SMTPSettings(models.Model):
     host = models.CharField(max_length=253, blank=True)
     port = models.PositiveIntegerField(default=587)
     username = models.CharField(max_length=254, blank=True)
-    password = models.TextField(blank=True)
+    password = EncryptedTextField(blank=True)
     security = models.CharField(
         max_length=8,
         choices=[("starttls", "STARTTLS"), ("tls", "TLS"), ("none", "None")],

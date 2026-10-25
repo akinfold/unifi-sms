@@ -1,11 +1,14 @@
 import fcntl
 import json
 import ssl
+import subprocess
+import sys
+import time
 import urllib.error
-import urllib.request
 import uuid
 from contextlib import contextmanager
 from datetime import timedelta
+from pathlib import Path
 
 from django.conf import settings
 from django.utils import timezone
@@ -52,10 +55,7 @@ def queue_webhook(message):
     return delivery
 
 
-class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, new_url):
-        # A redirect can move the request to another host and expose its secret.
-        return None
+_POST_TIMEOUT = 10
 
 
 def _retry_time(attempts):
@@ -63,25 +63,45 @@ def _retry_time(attempts):
 
 
 def _post(url, payload, secret, secret_header, token):
-    body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-    request = urllib.request.Request(
-        url,
-        data=body,
-        headers={
-            "Content-Type": "application/json; charset=utf-8",
-            "Idempotency-Key": str(token),
-        },
-        method="POST",
-    )
+    deadline = time.monotonic() + _POST_TIMEOUT
+    headers = {
+        "Content-Type": "application/json; charset=utf-8",
+        "Idempotency-Key": str(token),
+    }
     if secret:
-        request.add_header(secret_header, secret)
-    opener = urllib.request.build_opener(
-        urllib.request.ProxyHandler({}), _NoRedirectHandler()
-    )
-    with opener.open(request, timeout=10) as response:
-        status = response.getcode()
-        if not 200 <= status < 300:
-            raise _WebhookHTTPError(status)
+        headers[secret_header] = secret
+    values = {
+        "url": url,
+        "body": json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+        "headers": headers,
+        "timeout": _POST_TIMEOUT,
+    }
+    # A socket timeout cannot bound DNS or a peer that keeps sending header bytes.
+    # Process isolation lets the worker cancel all network operations and reap them.
+    with subprocess.Popen(
+        [sys.executable, "-I", str(Path(__file__).with_name("webhook_http.py"))],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+    ) as process:
+        try:
+            output, _ = process.communicate(
+                json.dumps(values).encode("utf-8"),
+                timeout=max(0.001, deadline - time.monotonic()),
+            )
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.communicate()
+            raise TimeoutError("Webhook request timed out") from None
+        if process.returncode:
+            raise urllib.error.URLError("Request failed")
+    result = json.loads(output)
+    if result.get("error") == "timeout":
+        raise TimeoutError("Webhook request timed out")
+    if result.get("error") == "tls":
+        raise ssl.SSLError("TLS verification failed")
+    if result.get("error"):
+        raise urllib.error.URLError("Request failed")
+    if not 200 <= result["status"] < 300:
+        raise _WebhookHTTPError(result["status"])
 
 
 class _WebhookHTTPError(Exception):
@@ -90,6 +110,8 @@ class _WebhookHTTPError(Exception):
 
 
 def _safe_error(error):
+    if isinstance(error, TimeoutError):
+        return "Webhook request timed out. A retry is scheduled."
     if isinstance(error, _WebhookHTTPError):
         return f"Webhook returned HTTP {error.status}. A retry is scheduled."
     if isinstance(error, urllib.error.HTTPError):
@@ -107,8 +129,6 @@ def _safe_error(error):
         return "Webhook network request failed. A retry is scheduled."
     if isinstance(error, ssl.SSLError):
         return "Webhook TLS verification failed. A retry is scheduled."
-    if isinstance(error, TimeoutError):
-        return "Webhook request timed out. A retry is scheduled."
     return "Webhook delivery failed. A retry is scheduled."
 
 

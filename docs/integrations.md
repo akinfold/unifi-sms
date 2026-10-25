@@ -12,7 +12,9 @@ REST API, MCP, and webhook forwarding are available starting with version 0.1.5.
 
 Both keys grant read and write access to the entire SMS archive. Each integration validates its own saved key. Use different values so you can grant and revoke access to each integration separately. Use HTTPS when credentials travel over a network. An administrator's browser session does not authorize these endpoints.
 
-To rotate a key, enter or generate a new value and save. The old key stops working immediately. To revoke it, turn off the integration, choose **Revoke key**, and save. Turning off an integration without revoking its key pauses access and preserves the key for later use. Disabled endpoints return HTTP 404; enabled endpoints with missing or invalid credentials return HTTP 401.
+To rotate a key, enter or generate a new value and save. The old key stops working immediately. To revoke it, turn off the integration, choose **Revoke key**, and save. Turning off an integration without revoking its key pauses access and preserves the key for later use. Disabled endpoints return HTTP 404; enabled endpoints with missing or invalid credentials return HTTP 401. Repeated failed authentication can return HTTP 429 with a `Retry-After` header. Existing keys remain valid after an upgrade; their older password hashes are replaced with fast keyed hashes after successful authentication. Until then, verification is limited to five attempts per client and twenty across the service per minute. A valid key with a keyed hash remains usable when the failed-attempt limit is reached.
+
+Saved integration keys use HMAC-SHA256 with a domain-separated key derived from the application's persistent `SECRET_KEY`. Verification is fast and uses a constant-time comparison. A database copy alone cannot verify guesses without the application secret. A copy of the entire data volume includes both, so protect the volume and its backups. Changing the application secret, including through `DJANGO_SECRET_KEY`, invalidates these hashes and the encrypted credentials that depend on it. Restore the original secret or replace the affected credentials and integration keys.
 
 ## Use the REST API
 
@@ -112,7 +114,7 @@ The endpoint accepts JSON-RPC POST requests and returns JSON responses. It suppo
 ## Forward new SMS to a webhook
 
 1. Open **Settings → Webhooks**.
-2. Enter an HTTP or HTTPS destination URL that accepts JSON POST requests. Credentials in the URL and URL fragments are rejected.
+2. Enter an HTTP or HTTPS destination URL that accepts JSON POST requests. Use HTTPS when SMS or secrets travel over a network; HTTP does not encrypt them. Credentials in the URL and URL fragments are rejected.
 3. Optionally enter a secret and its header name. The default header is `X-Webhook-Secret`. To use Bearer authorization, set the header to `Authorization` and the secret to `Bearer YOUR_TOKEN`.
 4. Select **Enable webhook forwarding** and **Save settings**.
 5. Import a new SMS and check its webhook status in the inbox and message reader.
@@ -146,7 +148,7 @@ Return any 2xx status to acknowledge receipt. The service does not inspect the r
 
 The SMS and its webhook job are saved before the device slot is cleared. Webhook delivery runs after import and email forwarding. Delivery failures leave the archive and slot cleanup unaffected.
 
-Requests time out after 10 seconds. Failures retry after one minute, with exponential backoff up to one hour; the worker checks about once a minute. HTTP redirects are rejected, so the secret is not forwarded to another URL. HTTP error response bodies and credentials are not shown in the inbox.
+Each request has a total 10-second deadline, including DNS lookup, connection, TLS, upload, and response headers. Timed-out requests are terminated and retried. Failures retry after one minute, with exponential backoff up to one hour; the worker checks about once a minute. HTTP redirects are rejected, so the secret is not forwarded to another URL. HTTP error response bodies and credentials are not shown in the inbox.
 
 The inbox and message reader show **Webhook pending**, **Webhook error**, or **Webhook sent** while forwarding is enabled and valid. Sent messages include the sending time. **Webhook not queued** means no delivery job exists for that SMS. Disabling forwarding hides these statuses and pauses pending jobs; enabling it resumes them without losing their state.
 

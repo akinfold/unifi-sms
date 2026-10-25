@@ -1,8 +1,7 @@
-import json
-
 from django.http import HttpResponse, HttpResponseNotAllowed, JsonResponse
 
 from .api_auth import authenticate_request, csrf_exempt_api
+from .json_input import load_json
 from .sms_service import ApiError, create_message, delete_message, get_message, list_messages, update_message
 
 MAX_BODY_BYTES = 131072
@@ -18,8 +17,8 @@ def _json_body(request):
     if request.content_type != "application/json":
         raise ApiError("Content-Type must be application/json.", 415)
     try:
-        value = json.loads(request.body)
-    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError):
+        value = load_json(request.body)
+    except (UnicodeError, ValueError, RecursionError):
         raise ApiError("Request body must contain valid JSON.")
     if not isinstance(value, dict):
         raise ApiError("Expected a JSON object.")

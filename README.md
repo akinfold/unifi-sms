@@ -38,11 +38,11 @@ Run on the Docker host:
 ```sh
 mkdir -p unifi-sms
 cd unifi-sms
-curl -fsSL https://raw.githubusercontent.com/akinfold/unifi-sms/v0.1.5/compose.ghcr.yaml -o compose.yaml
+curl -fsSL https://raw.githubusercontent.com/akinfold/unifi-sms/v0.1.6/compose.ghcr.yaml -o compose.yaml
 docker compose up -d
 ```
 
-This downloads the release Compose file and starts the public `0.1.5` image from GHCR. Docker downloads the image automatically. Prefer Docker Hub? [Switch the image below](#choose-your-registry).
+This downloads the release Compose file and starts the public `0.1.6` image from GHCR. Docker downloads the image automatically. Prefer Docker Hub? [Switch the image below](#choose-your-registry).
 
 ### 2. Create your administrator
 
@@ -69,13 +69,13 @@ Both images are public and support the same architectures. No registry login is 
 
 | Registry | Image |
 | --- | --- |
-| [GitHub Container Registry](https://github.com/users/akinfold/packages/container/package/unifi-sms) | `ghcr.io/akinfold/unifi-sms:0.1.5` |
-| [Docker Hub](https://hub.docker.com/r/akinfold/unifi-sms) | `docker.io/akinfold/unifi-sms:0.1.5` |
+| [GitHub Container Registry](https://github.com/users/akinfold/packages/container/package/unifi-sms) | `ghcr.io/akinfold/unifi-sms:0.1.6` |
+| [Docker Hub](https://hub.docker.com/r/akinfold/unifi-sms) | `docker.io/akinfold/unifi-sms:0.1.6` |
 
 To use Docker Hub, replace the `image:` line in `compose.yaml` with:
 
 ```yaml
-    image: docker.io/akinfold/unifi-sms:${IMAGE_TAG:-0.1.5}
+    image: docker.io/akinfold/unifi-sms:${IMAGE_TAG:-0.1.6}
 ```
 
 Run `docker compose up -d` again. Keep the same Compose project and data volume when switching registries.
@@ -92,7 +92,7 @@ Device access and forwarding are configured in the web interface. No connection 
 
 ## Connect scripts, MCP clients, and webhooks
 
-**Available in 0.1.5:** manage the archive through REST API or MCP, and forward new SMS to webhooks. See the [0.1.5 release notes](docs/release-notes/0.1.5.md) for changes and upgrade instructions.
+**REST API, MCP, and webhooks:** manage the archive from your tools and forward new SMS to your applications. Version 0.1.6 adds security fixes for authentication, credentials, and network timeouts. See the [0.1.6 release notes](docs/release-notes/0.1.6.md) for changes and upgrade instructions.
 
 REST API, MCP, and webhook forwarding are independent options, **disabled by default**. Configure them in the web interface; no additional container environment variables are required.
 
@@ -137,7 +137,7 @@ ssh -N -L 8080:127.0.0.1:8080 USER@SERVER
 
 Keep the tunnel open and visit [http://localhost:8080](http://localhost:8080).
 
-For direct LAN access, create `.env` beside `compose.yaml`. Replace the example IP with an address assigned to the **Docker host**:
+For browser and integration access over a network, use the [HTTPS reverse-proxy guide](docs/nas-maintenance.md#optional-https-access). HTTP sends passwords, API keys, and SMS without transport encryption. For temporary HTTP access on a private network you control, create `.env` beside `compose.yaml`. Replace the example IP with an address assigned to the **Docker host**:
 
 ```dotenv
 BIND_ADDRESS=10.20.30.10
@@ -151,7 +151,7 @@ For HTTPS, follow the [reverse-proxy guide](docs/nas-maintenance.md#optional-htt
 
 ## Keep your archive and stay up to date
 
-**Imported SMS are removed from the LTE Pro, so back up the archive.** The `unifi-sms_sms-data` volume contains the database, accounts, credentials, trusted host keys, and application secret. Back up the **entire volume** and protect backups as secrets; see [backup and restore](docs/nas-maintenance.md#back-up-the-complete-data-volume).
+**Imported SMS are removed from the LTE Pro, so back up the archive.** The `unifi-sms_sms-data` volume contains the database, accounts, credentials, trusted host keys, and application secret. Back up the **entire volume** and encrypt backups separately. Saved device credentials, SMTP passwords, and webhook secrets use the persistent application secret; a copy of the complete volume includes that decryption secret. Older backups can contain plaintext SMTP passwords. Protect all backups as secrets; see [backup and restore](docs/nas-maintenance.md#back-up-the-complete-data-volume).
 
 Replacing the container preserves this volume. `docker compose down` preserves it too; **`docker compose down -v` deletes it**.
 
@@ -170,6 +170,7 @@ Upgrading from `0.1.0`? Release `0.1.1` verifies the SSH host key before sending
 
 The release workflow validates the tagged source before publishing images to GHCR or Docker Hub. A failed check blocks both registries. Required checks cover:
 
+- Security regressions for credential encryption and migration, authentication limits, trusted proxies, malformed JSON, and total SSH and webhook deadlines.
 - Fresh installation and administrator creation.
 - Upgrades that preserve settings, the administrator account, and SMS.
 - SMS import, database storage, device slot cleanup, and email delivery with simulated LTE Pro and SMTP servers.
@@ -200,7 +201,7 @@ Check the container with `docker compose ps`. For startup errors, run `docker co
 - [Discovery, SMS cleanup, and email delivery: behavior and limits](docs/behavior.md)
 - [REST API, MCP, and webhook setup](docs/integrations.md)
 - [Source builds, development, and validation](docs/development.md)
-- [What changed in 0.1.5](docs/release-notes/0.1.5.md)
+- [What changed in 0.1.6](docs/release-notes/0.1.6.md)
 - [Release publishing and registry descriptions](docs/releases.md)
 - [Report a bug or suggest a feature](https://github.com/akinfold/unifi-sms/issues)
 

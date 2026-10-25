@@ -1,13 +1,13 @@
 import secrets
 
 from django.contrib import messages
-from django.contrib.auth.hashers import make_password
 from django.db import transaction
 from django.http import JsonResponse
 from django.shortcuts import redirect, render
 from django.views.decorators.debug import sensitive_post_parameters
 from django.views.decorators.http import require_POST, require_http_methods
 
+from .api_keys import make_api_key_hash
 from .integration_forms import IntegrationSettingsForm
 from .models import IntegrationSettings, WebhookDelivery, WebhookSettings
 from .views import admin_required, initialized
@@ -46,7 +46,7 @@ def integrations(request):
             action = data[f"{name}_key_action"]
             if action == "replace":
                 key = data[f"{name}_key"]
-                defaults[f"{name}_key_hash"] = make_password(key)
+                defaults[f"{name}_key_hash"] = make_api_key_hash(key)
                 defaults[f"{name}_key_suffix"] = key[-4:]
             elif action == "revoke":
                 defaults[f"{name}_key_hash"] = defaults[f"{name}_key_suffix"] = ""

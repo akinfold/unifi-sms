@@ -1,10 +1,11 @@
 import unittest
-from io import BytesIO, StringIO
+from io import StringIO
 from unittest.mock import MagicMock, patch
 
 import paramiko
 
 from modem.client import ModemClient, ModemError, parse_host_keys, parse_private_key
+from modem.tests.test_ssh import CommandChannel
 
 
 class FakeChannel:
@@ -70,13 +71,11 @@ class ClientTests(unittest.TestCase):
 
     def test_device_model_uses_board_name(self):
         client = self.client()
-        stdout = BytesIO(b"U-LTE-Pro-EU\n")
-        stdout.channel = MagicMock()
-        stdout.channel.recv_exit_status.return_value = 0
+        channel = CommandChannel(b"U-LTE-Pro-EU\n")
         client._ssh = MagicMock()
-        client._ssh.exec_command.return_value = (None, stdout, None)
+        client._ssh.get_transport.return_value.open_session.return_value = channel
         self.assertEqual(client.device_model(), "U-LTE-Pro-EU")
-        command = client._ssh.exec_command.call_args.args[0]
+        command = channel.command
         self.assertIn("board.name", command)
         self.assertIn("/etc/board.info", command)
 
@@ -84,11 +83,9 @@ class ClientTests(unittest.TestCase):
         for output in (b"", b"<script>\n", b"model\nother\n"):
             with self.subTest(output=output):
                 client = self.client()
-                stdout = BytesIO(output)
-                stdout.channel = MagicMock()
-                stdout.channel.recv_exit_status.return_value = 0
                 client._ssh = MagicMock()
-                client._ssh.exec_command.return_value = (None, stdout, None)
+                channel = CommandChannel(output)
+                client._ssh.get_transport.return_value.open_session.return_value = channel
                 with self.assertRaises(ModemError):
                     client.device_model()
 

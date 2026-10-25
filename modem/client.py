@@ -6,6 +6,8 @@ import shlex
 import time
 from io import StringIO
 
+from .ssh import SSHCommandError, command_deadline, read_command
+
 
 MODEM_DEVICE = "/dev/ttyUSB2"
 SMS_STORAGE = "SM"
@@ -147,13 +149,16 @@ class ModemClient:
                 banner_timeout=self.timeout,
                 **authentication,
             )
-            channel = ssh.get_transport().open_session(timeout=self.timeout)
-            channel.set_combine_stderr(True)
-            channel.exec_command(self._remote_script())
-            self._ssh, self._channel = ssh, channel
-            deadline = time.monotonic() + self.timeout
-            while self._read_line(deadline) != _READY:
-                pass
+            with command_deadline(ssh, self.timeout) as deadline:
+                channel = ssh.get_transport().open_session(
+                    timeout=max(0.001, deadline - time.monotonic())
+                )
+                self._channel = channel
+                channel.settimeout(max(0.001, deadline - time.monotonic()))
+                channel.set_combine_stderr(True)
+                channel.exec_command(self._remote_script())
+                while self._read_line(deadline) != _READY:
+                    pass
             lines = self._request("+CMGF?")
             modes = [re.fullmatch(r"\+CMGF:\s*([01])", line) for line in lines]
             self._original_mode = next((int(match[1]) for match in modes if match), None)
@@ -312,13 +317,14 @@ done
     def device_model(self) -> str:
         if self._ssh is None:
             raise ModemError("Modem session is closed")
-        _, stdout, _ = self._ssh.exec_command(
-            "sed -n '/^board.name=/{s/^board.name=//;p;q;}' /etc/board.info | cut -c 1-128",
-            timeout=self.timeout,
-        )
-        raw = stdout.read(256)
-        if stdout.channel.recv_exit_status() != 0:
-            raise ModemError("Could not read device model")
+        try:
+            raw = read_command(
+                self._ssh,
+                "sed -n '/^board.name=/{s/^board.name=//;p;q;}' /etc/board.info | cut -c 1-128",
+                timeout=self.timeout,
+            )
+        except SSHCommandError:
+            raise ModemError("Could not read device model") from None
         try:
             model = raw.decode("ascii").strip()
         except UnicodeDecodeError as exc:

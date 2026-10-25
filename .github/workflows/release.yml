@@ -78,18 +78,19 @@ jobs:
             core.setOutput('dockerhub_image', dockerhubImage);
 
   validate:
-    name: Validate source, installation, upgrade, SMS cycle, UI, and integrations
+    name: Build and validate both release platforms
     needs: prepare
     uses: ./.github/workflows/ci.yml
     with:
       ref: ${{ needs.prepare.outputs.sha }}
       target_tag: ${{ needs.prepare.outputs.tag }}
+      export_images: true
 
   publish:
-    name: Build and publish AMD64 and ARM64
+    name: Promote the validated images without rebuilding
     needs: [prepare, validate]
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 25
     permissions:
       contents: read
       packages: write
@@ -111,67 +112,27 @@ jobs:
             echo '::error::Set the DOCKERHUB_USERNAME Actions variable and DOCKERHUB_TOKEN Actions secret. See docs/releases.md.'
             exit 1
           fi
-      - name: Check out the validated commit
+      - name: Check out release metadata
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.prepare.outputs.sha }}
+          fetch-depth: 0
           persist-credentials: false
-      - name: Read the release description from README
-        id: description
-        run: |
-          python - <<'PYTHON'
-          import csv
-          import html
-          import io
-          import os
-          import re
-          import subprocess
-          from pathlib import Path
-
-          readme = subprocess.check_output(['git', 'show', f"{os.environ['RELEASE_SHA']}:README.md"], text=True)
-          readme = re.sub(r'<!--.*?-->', '', readme, flags=re.S)
-          paragraphs = re.split(r'\n\s*\n', readme.strip())
-          paragraph = next((part for part in paragraphs if not part.lstrip().startswith('#')), '')
-          description = re.sub(r'!?\[([^\]]*)\]\([^)]*\)', r'\1', paragraph)
-          description = re.sub(r'<[^>]+>', '', description)
-          description = re.sub(r'[`*_]', '', description)
-          description = ' '.join(html.unescape(description).split())
-          if not description or any(ord(char) < 32 or ord(char) == 127 for char in description):
-              raise SystemExit('README.md must contain a nonempty introductory paragraph without control characters.')
-          if len(description) > 512:
-              description = description[:509].rsplit(' ', 1)[0].rstrip() + '...'
-          with Path(os.environ['GITHUB_OUTPUT']).open('a', encoding='utf-8') as output:
-              output.write(f'description={description}\n')
-              # Docker action list inputs use CSV parsing, including for descriptions with commas.
-              for name, key in [('label', 'org.opencontainers.image.description'),
-                                ('annotation', 'index:org.opencontainers.image.description')]:
-                  entry = io.StringIO()
-                  csv.writer(entry, lineterminator='').writerow([f'{key}={description}'])
-                  output.write(f'{name}={entry.getvalue()}\n')
-          PYTHON
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+      - name: Load promotion tooling from the workflow commit
+        env:
+          VALIDATION_REF: ${{ github.workflow_sha }}
+        run: git show "$VALIDATION_REF:.github/scripts/release-artifacts.py" > "$RUNNER_TEMP/release-artifacts.py"
+      - name: Download both validated images
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
         with:
-          platforms: arm64
+          pattern: validated-image-*
+          path: ${{ runner.temp }}/validated-images
+      - name: Verify both archives and their validated image identities
+        run: python "$RUNNER_TEMP/release-artifacts.py" verify --directory "$RUNNER_TEMP/validated-images"
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
         with:
-          name: unifi-sms-release
-      - name: Generate image tags and labels
-        id: metadata
-        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
-        with:
-          images: |
-            ${{ env.GHCR_IMAGE }}
-            ${{ env.DOCKERHUB_IMAGE }}
-          flavor: latest=false
-          tags: |
-            type=raw,value=${{ env.IMAGE_VERSION }}
-            type=raw,value=sha-${{ env.RELEASE_SHA }}
-          labels: |
-            org.opencontainers.image.version=${{ env.IMAGE_VERSION }}
-            org.opencontainers.image.revision=${{ env.RELEASE_SHA }}
-            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+          name: unifi-sms-release-promotion
       - name: Confirm the release tag still identifies the validated commit
         if: env.PUBLISH_IMAGES == 'true'
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
@@ -197,68 +158,10 @@ jobs:
         with:
           username: ${{ vars.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - name: Build both platforms
-        id: build
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
-        with:
-          context: .
-          platforms: linux/amd64,linux/arm64
-          push: ${{ env.PUBLISH_IMAGES == 'true' }}
-          outputs: ${{ env.PUBLISH_IMAGES != 'true' && format('type=oci,dest={0}/unifi-sms-release.tar', runner.temp) || '' }}
-          tags: ${{ steps.metadata.outputs.tags }}
-          labels: |
-            ${{ steps.metadata.outputs.labels }}
-            ${{ steps.description.outputs.label }}
-          annotations: ${{ steps.description.outputs.annotation }}
-          cache-from: type=gha,scope=release
-          cache-to: type=gha,mode=max,scope=release
-          provenance: mode=min
-      - name: Verify dry-run platforms and description
-        if: env.PUBLISH_IMAGES != 'true'
-        env:
-          IMAGE_DESCRIPTION: ${{ steps.description.outputs.description }}
-        run: |
-          python - <<'PYTHON'
-          import json
-          import os
-          import tarfile
-
-          required_platforms = {('linux', 'amd64'), ('linux', 'arm64')}
-          with tarfile.open(os.path.join(os.environ['RUNNER_TEMP'], 'unifi-sms-release.tar')) as archive:
-              def visit(name):
-                  index = json.load(archive.extractfile(name))
-                  manifests = index.get('manifests', [])
-                  platforms = {(item.get('platform', {}).get('os'), item.get('platform', {}).get('architecture')) for item in manifests}
-                  if required_platforms <= platforms:
-                      description = index.get('annotations', {}).get('org.opencontainers.image.description')
-                      assert description == os.environ['IMAGE_DESCRIPTION'], 'Image index description differs from README'
-                      return True
-                  return any(visit('blobs/' + item['digest'].replace(':', '/')) for item in manifests
-                             if 'index' in item['mediaType'] or 'manifest.list' in item['mediaType'])
-              assert visit('index.json'), 'AMD64 and ARM64 image index not found'
-          print('Verified AMD64, ARM64, and the README description; no registry credentials were used and no images were pushed.')
-          PYTHON
-      - name: Verify published version manifests
+      - name: Push the validated images and combine their immutable digests
         if: env.PUBLISH_IMAGES == 'true'
-        env:
-          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
-          IMAGE_DESCRIPTION: ${{ steps.description.outputs.description }}
-        run: |
-          for image in "$GHCR_IMAGE" "$DOCKERHUB_IMAGE"; do
-            docker buildx imagetools inspect "$image:$IMAGE_VERSION" --format '{{json .Manifest}}' > "$RUNNER_TEMP/unifi-sms-manifest.json"
-            python - <<'PYTHON'
-          import json
-          import os
-          from pathlib import Path
-
-          manifest = json.loads((Path(os.environ['RUNNER_TEMP']) / 'unifi-sms-manifest.json').read_text())
-          assert manifest['digest'] == os.environ['IMAGE_DIGEST'], 'Registry digest differs from the build result'
-          platforms = {(item.get('platform', {}).get('os'), item.get('platform', {}).get('architecture')) for item in manifest['manifests']}
-          assert {('linux', 'amd64'), ('linux', 'arm64')} <= platforms, platforms
-          description = manifest.get('annotations', {}).get('org.opencontainers.image.description')
-          assert description == os.environ['IMAGE_DESCRIPTION'], 'Published index description differs from README'
-          PYTHON
-          done
+        id: promote
+        run: python "$RUNNER_TEMP/release-artifacts.py" promote --directory "$RUNNER_TEMP/validated-images"
       - name: Check release tag and latest status
         if: env.PUBLISH_IMAGES == 'true'
         id: latest
@@ -283,21 +186,24 @@ jobs:
       - name: Update latest for the current stable release
         if: env.PUBLISH_IMAGES == 'true' && steps.latest.outputs.promote == 'true'
         env:
-          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+          IMAGE_DIGEST: ${{ steps.promote.outputs.digest }}
         run: |
           for image in "$GHCR_IMAGE" "$DOCKERHUB_IMAGE"; do
             docker buildx imagetools create --tag "$image:latest" "$image@$IMAGE_DIGEST"
             actual_digest=$(docker buildx imagetools inspect "$image:latest" --format '{{.Manifest.Digest}}')
             test "$actual_digest" = "$IMAGE_DIGEST"
           done
-      - name: Summarize build
+      - name: Summarize release validation and promotion
         env:
-          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+          IMAGE_DIGEST: ${{ steps.promote.outputs.digest }}
         run: |
+          # Markdown backticks are literal formatting, not command substitutions.
+          # shellcheck disable=SC2016
           {
             printf '## Release images\n\n'
             printf 'Version: `%s`\n\nCommit: `%s`\n\n' "$IMAGE_VERSION" "$RELEASE_SHA"
             printf 'Published: `%s`\n\nDigest: `%s`\n\n' "$PUBLISH_IMAGES" "$IMAGE_DIGEST"
             printf 'Platforms: `linux/amd64`, `linux/arm64`\n\n'
+            printf 'Both platform images passed the full CI and smoke gates before promotion. No image was rebuilt for publication.\n\n'
             printf -- '- `%s:%s`\n- `%s:%s`\n' "$GHCR_IMAGE" "$IMAGE_VERSION" "$DOCKERHUB_IMAGE" "$IMAGE_VERSION"
           } >> "$GITHUB_STEP_SUMMARY"

@@ -20,6 +20,8 @@ from .forms import AdminAuthenticationForm, SetupForm
 from .models import (
     AccessWindow, ForwardDelivery, Installation, Message, Receipt, SyncStatus, WebhookDelivery,
 )
+from .proxy import client_address
+from .rate_limits import exhausted, reserve, window_key
 from .smtp_config import smtp_forwarding_active
 from .webhook_config import webhook_active
 
@@ -32,7 +34,7 @@ def initialized():
 
 
 def rate_limited(request):
-    key = hashlib.sha256((request.META.get("REMOTE_ADDR", "") + request.path).encode()).hexdigest()
+    key = hashlib.sha256((client_address(request) + request.path).encode()).hexdigest()
     now = timezone.now()
     with transaction.atomic():
         window, _ = AccessWindow.objects.get_or_create(key=key, defaults={"started_at": now})
@@ -65,9 +67,26 @@ class AdminLogin(LoginView):
     def dispatch(self, request, *args, **kwargs):
         if not initialized():
             return redirect("setup")
-        if request.method == "POST" and rate_limited(request):
-            return HttpResponse("Too many attempts. Try again in 15 minutes.", status=429)
+        if request.method == "POST":
+            address = client_address(request)
+            username = request.POST.get("username", "")[:300].casefold()
+            self.failure_buckets = [
+                (window_key("login-client", address), 100),
+                (window_key("login-account-client", address, username), 10),
+            ]
+            if any(exhausted(key, limit, 900) for key, limit in self.failure_buckets):
+                response = HttpResponse("Too many attempts. Try again in 15 minutes.", status=429)
+                response["Retry-After"] = "900"
+                return response
         return super().dispatch(request, *args, **kwargs)
+
+    def form_invalid(self, form):
+        reserve(self.failure_buckets, 900)
+        return super().form_invalid(form)
+
+    def form_valid(self, form):
+        AccessWindow.objects.filter(pk=self.failure_buckets[1][0]).delete()
+        return super().form_valid(form)
 
 
 def setup(request):

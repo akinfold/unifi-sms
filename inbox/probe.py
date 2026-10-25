@@ -4,6 +4,7 @@ import socket
 import paramiko
 
 from modem.client import ModemClient, parse_host_keys, parse_private_key
+from modem.ssh import SSHCommandError, read_command
 from .trust import key_fingerprint
 
 
@@ -34,10 +35,10 @@ def inspect_host_key(values):
 
 
 def _read_command(ssh, command, limit=256):
-    _, stdout, _ = ssh.exec_command(command, timeout=5)
-    raw = stdout.read(limit + 1)
-    if len(raw) > limit or stdout.channel.recv_exit_status() != 0:
-        raise ProbeError("The device did not return valid identity information.")
+    try:
+        raw = read_command(ssh, command, timeout=5, limit=limit)
+    except (SSHCommandError, TimeoutError):
+        raise ProbeError("The device did not return valid identity information.") from None
     return raw.decode("utf-8", errors="replace").strip()
 
 
