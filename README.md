@@ -25,6 +25,8 @@ A private SMS inbox for your UniFi LTE Pro. Archive messages, forward them to em
 | Synology NAS with Container Manager | [Synology installation guide](docs/install-synology.md) |
 | UGREEN NAS with the Docker app | [UGREEN installation guide](docs/install-ugreen.md) |
 
+**Installing on a NAS?** The guides take you through four steps: install the container app, paste the [ready-to-use Compose file](docs/compose.nas.yaml), start the project, and finish setup in your browser. Replace the example NAS IP in just two places; no terminal commands or `.env` file are needed.
+
 The images support **Linux AMD64 and ARM64**. NAS support depends on the model and available container apps; see the guides for requirements. 32-bit ARM is not supported.
 
 ## Quick start with Docker Compose
