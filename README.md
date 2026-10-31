@@ -174,7 +174,7 @@ The release workflow validates the tagged source before publishing images to GHC
 
 - Security regressions for credential encryption and migration, authentication limits, trusted proxies, malformed JSON, and total SSH and webhook deadlines.
 - Fresh installation and administrator creation.
-- Upgrades that preserve settings, the administrator account, and SMS.
+- Upgrades that preserve settings, the administrator account, and SMS, then verify SSH import, slot cleanup, email, REST API, MCP, webhooks, and delivery statuses using the saved configuration.
 - SMS import, database storage, device slot cleanup, and email delivery with simulated LTE Pro and SMTP servers.
 - Email delivery labels, sending times, and hiding statuses when forwarding is disabled.
 - REST API and MCP key authentication, rotation, revocation, and SMS CRUD, including an official MCP SDK client.
