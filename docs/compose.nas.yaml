@@ -1,11 +1,15 @@
 name: unifi-sms
 services:
   app:
-    image: docker.io/akinfold/unifi-sms:0.1.6
+    image: docker.io/akinfold/unifi-sms:latest
+    pull_policy: always
     container_name: unifi-sms-app
     restart: unless-stopped
     ports:
-      - "10.20.30.10:8080:8000"
+      # NAS_IP:HOST_PORT:CONTAINER_PORT. Replace the example NAS IP.
+      # If 8098 is busy, use a free host port (e.g. 18098); keep 8000.
+      # Redeploy the project, then open http://NAS_IP:HOST_PORT.
+      - "10.20.30.10:8098:8000"
     environment:
       DATA_DIR: /data
       ALLOWED_HOSTS: "10.20.30.10,localhost,127.0.0.1"

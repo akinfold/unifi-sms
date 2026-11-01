@@ -1,18 +1,20 @@
 # Build and develop UniFi SMS
 
-For deployment from the published image, use the [README quick start](../README.md#quick-start-with-docker-compose). The procedures below require a source checkout. Repository access is separate from anonymous access to the public image.
+For deployment from the published image, use the [installation guides](../README.md#install-on-your-nas). The procedures below require a source checkout. Repository access is separate from anonymous access to the public image.
 
 ## Build from source with Docker Compose
 
 From the repository root:
 
 ```sh
-cp .env.example .env
+if [ ! -f .env ]; then cp .env.example .env; fi
 docker compose -f compose.yaml up --build -d
 docker compose -f compose.yaml ps
 ```
 
-Open [http://localhost:8080](http://localhost:8080), create the administrator, and complete the device wizard. The source Compose file builds `unifi-sms:0.1.6` locally, binds port `8080` to loopback, and uses project `unifi-sms`, container `unifi-sms-app`, and volume `unifi-sms_sms-data`.
+Open [http://localhost:8098](http://localhost:8098), create the administrator, and complete the device wizard. The source Compose file builds `unifi-sms:0.1.6` locally, binds port `8098` to loopback, and uses project `unifi-sms`, container `unifi-sms-app`, and volume `unifi-sms_sms-data`.
+
+If host port **8098** is in use, edit `.env` in the repository root and set `PORT=18098`, or choose another free host port. Keep the other settings and container port **8000** unchanged. Apply the change with `docker compose -f compose.yaml up --build -d`, then open `http://localhost:18098` using your chosen port. This recreates the container while keeping its data volume; restarting it alone does not apply a new port mapping. For an existing installation, retain its current `PORT` value unless you intend to change it.
 
 The source and registry Compose files identify the same deployment. Do not start both as separate installations on one host. The explicit `-f compose.yaml` also excludes local override files; include any intended override explicitly.
 
@@ -36,6 +38,14 @@ In a second terminal, from the same directory:
 ```
 
 Open [http://localhost:8000](http://localhost:8000). `--insecure` serves the collected local assets through Django's development server. Use the Docker image for deployment.
+
+If port **8000** is busy, choose a free port in the `runserver` command:
+
+```sh
+.venv/bin/python manage.py runserver 127.0.0.1:18098 --insecure
+```
+
+Then open `http://localhost:18098`, using your chosen port. The `.env` setting `PORT` controls the Docker host mapping, not `runserver`; the worker command stays the same.
 
 The local application stores its database and persistent secret in the ignored `data/` directory unless `DATA_DIR` is set. Stop any deployed importer that uses the same device before activating a local connection.
 

@@ -79,7 +79,7 @@ For manual rebuilds of older releases, CI takes the smoke tests and version sele
 ### Docker Hub
 
 1. Create a **public** Docker Hub repository named `unifi-sms` under your account or organization. Public visibility allows installation without a Docker Hub login.
-2. In [Docker account settings](https://app.docker.com/settings/personal-access-tokens), create a personal access token with repository **Read, Write, Delete** permission. The description-update action requires this permission level; **Read & Write** is sufficient only for pushing images. See [Docker's token instructions](https://docs.docker.com/security/access-tokens/personal-access-tokens/) and the [action's token requirements](https://github.com/peter-evans/dockerhub-description#action-inputs).
+2. In [Docker account settings](https://docs.docker.com/security/access-tokens/personal-access-tokens/#create-a-personal-access-token), create a personal access token with repository **Read, Write, Delete** permission. The description-update action requires this permission level; **Read & Write** is sufficient only for pushing images. See [Docker's token instructions](https://docs.docker.com/security/access-tokens/personal-access-tokens/) and the [action's token requirements](https://github.com/peter-evans/dockerhub-description#action-inputs).
 3. In the GitHub repository, open **Settings → Secrets and variables → Actions** and add:
 
    | Tab | Name | Value |
