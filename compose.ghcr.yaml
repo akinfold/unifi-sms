@@ -1,11 +1,12 @@
 name: unifi-sms
 services:
   app:
-    image: ghcr.io/akinfold/unifi-sms:${IMAGE_TAG:-0.1.6}
+    image: ghcr.io/akinfold/unifi-sms:${IMAGE_TAG:-latest}
+    pull_policy: always
     container_name: unifi-sms-app
     restart: unless-stopped
     ports:
-      - "${BIND_ADDRESS:-127.0.0.1}:${PORT:-8080}:8000"
+      - "${BIND_ADDRESS:-127.0.0.1}:${PORT:-8098}:8000"
     environment:
       DATA_DIR: /data
       ALLOWED_HOSTS: "${ALLOWED_HOSTS:-localhost,127.0.0.1,[::1]}"
