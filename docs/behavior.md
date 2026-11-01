@@ -1,6 +1,6 @@
 # UniFi SMS behavior and limits
 
-Use the [README quick start](../README.md#quick-start-with-docker-compose) to install the application. This reference describes discovery, saved credentials, and message processing.
+Use the [installation guides](../README.md#install-on-your-nas) to install the application. This reference describes discovery, saved credentials, and message processing.
 
 ## Device discovery
 

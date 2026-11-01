@@ -1,6 +1,8 @@
 # UniFi SMS
 
-A private SMS inbox for your UniFi LTE Pro. Archive messages, forward them to email or webhooks, and connect your tools through REST API or MCP — from one Docker container. Messages are saved before their slots are freed on the device.
+**Read your LTE Pro's SMS in your browser or email inbox.**
+
+Get carrier notifications and other messages sent to the SIM in your LTE Pro. UniFi SMS runs on a NAS or any other host with Docker, keeps a searchable message archive, and forwards new SMS to email or webhooks. Use REST API or MCP to search and manage the archive from other tools.
 
 [![CI](https://github.com/akinfold/unifi-sms/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/akinfold/unifi-sms/actions/workflows/ci.yml)
 [![GitHub release](https://img.shields.io/github/v/release/akinfold/unifi-sms?logo=github)](https://github.com/akinfold/unifi-sms/releases/latest)
@@ -8,203 +10,79 @@ A private SMS inbox for your UniFi LTE Pro. Archive messages, forward them to em
 [![Platforms: AMD64 and ARM64](https://img.shields.io/badge/platforms-linux%2Famd64%20%7C%20linux%2Farm64-blue?logo=docker&logoColor=white)](https://hub.docker.com/r/akinfold/unifi-sms/tags)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-**Install the image, create your administrator, and connect your LTE Pro in the guided web setup.** No external database, source checkout, or registry account required.
+<a id="install-on-your-nas"></a>
 
-- **Keep the messages, free the slots.** SMS are saved to a local SQLite archive before their copies are removed from the device.
-- **Find what you need.** Search your inbox, check received dates, read a message, or delete selected messages from the archive.
-- **Get new SMS by email.** Optional SMTP forwarding brings new messages to your existing inbox, with a test-email button and delivery status for each message.
-- **Connect your tools.** REST API and MCP let scripts and compatible clients manage the archive using separate access keys. Webhooks deliver new SMS to your applications, with optional authentication, retries, and delivery status. [Set up integrations](#connect-scripts-mcp-clients-and-webhooks).
-- **Set up SSH in the browser.** Find the device or enter its address, use a password or SSH key, and approve its fingerprint. The wizard can generate a key and explain how to add it to UniFi Network.
-- **Run it on your server or NAS.** The web application and background importer share one container and one persistent data volume.
+## Install on a NAS or another Docker host
 
-## Choose your installation
+| Your system | Start here | Open after installation |
+| --- | --- | --- |
+| **Synology** with Container Manager | [Paste one installation script into DSM Task Scheduler](docs/install-synology.md) | `http://NAS_IP:8098` |
+| **UGREEN** with the Docker app | [Paste the Compose configuration into a Docker project](docs/install-ugreen.md) | `http://NAS_IP:8098` |
+| **Other Docker hosts** | [Start with Docker Compose](docs/install-docker.md) | `http://localhost:8098` on the host |
 
-| Where you want to run it | Start here |
-| --- | --- |
-| A computer or server with Docker Compose | [Quick start below](#quick-start-with-docker-compose) |
-| Synology NAS with Container Manager | [Synology installation guide](docs/install-synology.md) |
-| UGREEN NAS with the Docker app | [UGREEN installation guide](docs/install-ugreen.md) |
+The guides use host port **8098**. If it is already in use, follow the port-change steps for [Synology](docs/install-synology.md#if-the-port-is-already-in-use), [UGREEN](docs/install-ugreen.md#if-the-port-is-already-in-use), or [Docker Compose](docs/install-docker.md#choose-another-host-port). Use your chosen port in the browser URL; keep container port **8000**.
 
-**Installing on a NAS?** The guides take you through four steps: install the container app, paste the [ready-to-use Compose file](docs/compose.nas.yaml), start the project, and finish setup in your browser. Replace the example NAS IP in just two places; no terminal commands or `.env` file are needed.
+Both NAS guides finish in your browser: **install → create an administrator → connect the LTE Pro → receive a test SMS**. No NAS SSH, source checkout, external database, registry account, or `.env` file is needed for NAS installation.
 
-The images support **Linux AMD64 and ARM64**. NAS support depends on the model and available container apps; see the guides for requirements. 32-bit ARM is not supported.
+You need a NAS or another Docker host that supports **Linux AMD64 or ARM64 containers**, the LTE Pro's IP address, and its **device SSH credentials** or access to UniFi Network to add a key. The host must be able to reach the device over SSH. Use one importer per LTE Pro. For NAS-specific model and software requirements, see the corresponding guide; 32-bit ARM is not supported.
 
-## Quick start with Docker Compose
+## What you get
 
-You need Docker Compose and a UniFi LTE Pro reachable from the container over SSH. Have the **device's SSH credentials** ready, or access to UniFi Network to add a public key. These may differ from your UniFi web login. Use one UniFi SMS instance per device.
+- **See messages sent to your SIM.** Read notifications from your mobile carrier and SMS from other senders in one searchable inbox.
+- **Receive SMS in your email inbox.** Forward new messages through your SMTP server, with a test-email button, automatic retries, and delivery status for each SMS.
+- **Use SMS from scripts through REST API.** Search, read, create, update, and delete archive records with a dedicated access key.
+- **Connect an MCP client.** Give a compatible client access to the archive through Streamable HTTP and a separate Bearer key.
+- **Trigger workflows with webhooks.** Send a JSON event for each new SMS to your application or automation service, with an optional secret header, retries, and visible delivery status.
+- **Keep device storage available.** The LTE Pro has limited space for SMS. UniFi SMS saves each segment to the archive before deleting its device copy to make room for new messages.
 
-### 1. Start the container
+One container runs the web app and importer; one persistent volume holds the archive and settings. The importer checks for messages about once a minute. Messages it cannot safely decode, save, or verify remain on the device with a warning. See [SMS import and deletion](docs/behavior.md#sms-import-and-deletion) for details.
 
-Run on the Docker host:
+![UniFi SMS inbox showing an archived message, a cleared device slot, and email and webhook delivery statuses](docs/images/inbox-demo.png)
 
-```sh
-mkdir -p unifi-sms
-cd unifi-sms
-curl -fsSL https://raw.githubusercontent.com/akinfold/unifi-sms/v0.1.6/compose.ghcr.yaml -o compose.yaml
-docker compose up -d
-```
+*Example inbox using synthetic device details, messages, and statuses.*
 
-This downloads the release Compose file and starts the public `0.1.6` image from GHCR. Docker downloads the image automatically. Prefer Docker Hub? [Switch the image below](#choose-your-registry).
+## Verify your first SMS
 
-### 2. Create your administrator
+After you approve the LTE Pro in the connection wizard, imports begin and archived copies are removed from the device to free its slots. Send a test SMS to the SIM, wait for the next scan, and open it in the inbox. **Saved in your archive. Device slot cleared.** confirms both steps for that message.
 
-Open **[http://localhost:8080](http://localhost:8080)** on the computer running Docker. On a remote server, [open an SSH tunnel or enable LAN access](#access-from-another-computer) first.
-
-Choose an application username and a password of at least **8 characters**. Common or entirely numeric passwords are rejected. There is no default login or setup token; registration closes after the first administrator is created.
-
-### 3. Connect your LTE Pro
-
-The connection wizard opens automatically:
-
-1. Select **Search local network** or enter the device's IP address or hostname. If discovery finds nothing, enter the address manually.
-2. Enter the SSH port and device username, then choose a password or private key. You can paste your key or select **Generate SSH key** and follow the instructions to add its public part to UniFi Network.
-3. Select **Check connection**. Verify the displayed fingerprint through a trusted device console or administrator, then select **Confirm fingerprint and check access**.
-4. Review the device information and select **Trust device and start imports**. The application saves the trusted host key and checks it on future connections — no manual `known_hosts` file needed.
-
-**Your inbox is ready.** The importer checks for SMS about once a minute. The inbox shows its status, received dates, device address and model, and the SIM phone number when available. Use **Update from device** to refresh device information.
-
-Need help finding SSH credentials or adding a key? Follow the [step-by-step first-launch guide](docs/nas-first-run.md). To change the connection later, open **Settings → Device → Change device connection**.
-
-## Choose your registry
-
-Both images are public and support the same architectures. No registry login is needed.
-
-| Registry | Image |
-| --- | --- |
-| [GitHub Container Registry](https://github.com/users/akinfold/packages/container/package/unifi-sms) | `ghcr.io/akinfold/unifi-sms:0.1.6` |
-| [Docker Hub](https://hub.docker.com/r/akinfold/unifi-sms) | `docker.io/akinfold/unifi-sms:0.1.6` |
-
-To use Docker Hub, replace the `image:` line in `compose.yaml` with:
-
-```yaml
-    image: docker.io/akinfold/unifi-sms:${IMAGE_TAG:-0.1.6}
-```
-
-Run `docker compose up -d` again. Keep the same Compose project and data volume when switching registries.
+Need help with SSH credentials or the device fingerprint? Follow [First launch](docs/nas-first-run.md). Entering the LTE Pro's IP directly is the shortest route; local network search is optional.
 
 ## Forward new SMS to email
 
-Open **Settings → Email forwarding**, enter your SMTP settings, sender, and recipients, then select **Send test email**. Once the test arrives, select **Enable email forwarding** and **Save settings**.
+1. Open **Settings → Email forwarding** and enter your SMTP server, sender, and recipients.
+2. Select **Send test email** and check the recipient inbox. The test uses the form values without saving them.
+3. Select **Enable email forwarding**, then **Save settings**.
+4. Send a **new SMS** to the SIM. Check that it arrives by email and shows **Email sent** in UniFi SMS.
 
-The test uses the current form values without saving them; leave the password blank to use the saved password. New, complete messages are queued while forwarding is enabled. Existing messages are not sent retroactively. Failed deliveries are retried without blocking archiving; see [email delivery behavior](docs/behavior.md#email-delivery) for details.
-
-While forwarding is enabled and configured, the inbox and message reader show **Email pending**, **Email error**, or **Email sent**. Sent messages include the sending time. **Email not queued** means no delivery was scheduled for that SMS. Turning forwarding off hides these labels and sending times.
-
-Device access and forwarding are configured in the web interface. No connection settings are needed in `.env`; legacy `LTE_*` and `SMTP_*` variables are ignored.
+Existing complete messages are not forwarded retroactively. Failed deliveries retry automatically without blocking archiving. **Email sent** means the SMTP server accepted the message; check the destination inbox for delivery. See [email setup](docs/nas-first-run.md#step-7-set-up-optional-forwarding-and-integrations) and [delivery behavior](docs/behavior.md#email-delivery).
 
 ## Connect scripts, MCP clients, and webhooks
 
-**REST API, MCP, and webhooks:** manage the archive from your tools and forward new SMS to your applications. Version 0.1.6 adds security fixes for authentication, credentials, and network timeouts. See the [0.1.6 release notes](docs/release-notes/0.1.6.md) for changes and upgrade instructions.
+All integrations are optional, disabled by default, and configured in the browser.
 
-REST API, MCP, and webhook forwarding are independent options, **disabled by default**. Configure them in the web interface; no additional container environment variables are required.
-
-### Enable REST API or MCP
-
-1. Open **Settings → API and MCP** and enable the integration you need.
-2. Select **Generate key** or enter your own key with 32–256 printable ASCII characters and no spaces. Use a different key for each integration.
-3. Copy each key before selecting **Save settings**. Only its hash is stored; the saved key cannot be displayed again.
-4. Configure your client with the endpoint shown in settings and the header `Authorization: Bearer YOUR_KEY`. Use HTTPS for access over a network.
-
-| Integration | Endpoint | What you can do |
+| Connect with | Use it for | Setup and first check |
 | --- | --- | --- |
-| REST API | `/api/v1/messages/` | List, search, read, create, update, and delete archive records over HTTP. |
-| MCP | `/mcp/` | Use `list_sms`, `get_sms`, `create_sms`, `update_sms`, and `delete_sms` from a compatible client. |
+| **REST API** | Search and manage archive records over HTTP | [Enable a key and find your test SMS](docs/integrations.md#use-the-rest-api) |
+| **MCP** | Let a compatible client search and manage the archive | [Connect with the official Python SDK](docs/integrations.md#connect-an-mcp-client) |
+| **Webhooks** | Forward new SMS as JSON events to your workflows | [Configure a receiver and verify delivery](docs/integrations.md#forward-new-sms-to-a-webhook) |
 
-Each key grants read and write access to the entire archive. An administrator's browser session does not replace a key. Replacing a key invalidates the old one after saving; turning off an integration pauses access while retaining its key. To remove a key, turn off the integration, choose **Revoke key**, and save.
+REST and MCP keys each grant read and write access to the whole archive; there is no read-only key. MCP clients need Streamable HTTP and a custom Bearer header. Creating records through either interface **does not send cellular SMS** or trigger forwarding. Webhooks are outgoing HTTP notifications. Use HTTPS for API or MCP access over a network.
 
-MCP clients must support **Streamable HTTP** and a custom Bearer authorization header. Creating a record through REST or MCP only adds it to the archive: it does not send a cellular SMS or trigger email or webhook forwarding.
+## Keep your archive
 
-See [REST API examples](docs/integrations.md#use-the-rest-api) and [MCP client configuration](docs/integrations.md#connect-an-mcp-client) for request formats and limits.
+**Back up the complete data volume:** imported SMS are removed from the LTE Pro. The volume includes messages, accounts, settings, and encryption keys, so protect backups as secrets. Replacing the container preserves the archive when you keep its volume. Deleting the volume deletes the archive.
 
-### Forward new SMS to a webhook
-
-1. Open **Settings → Webhooks** and enter a destination URL that accepts JSON POST requests.
-2. If the receiver requires authentication, enter a secret and its header name. The default header is `X-Webhook-Secret`. Use HTTPS outside a trusted local network.
-3. Select **Enable webhook forwarding** and **Save settings**.
-4. Import a new SMS and check its webhook status in the inbox or message reader.
-
-Only new, complete SMS imported while forwarding is enabled and configured are queued. Email and webhook forwarding can run together. A 2xx response marks a webhook as sent; failed requests retry automatically. The receiver should deduplicate by the stable `event_id` or matching `Idempotency-Key` header.
-
-The inbox and reader show **Webhook pending**, **Webhook error**, or **Webhook sent**. Sent messages include the sending time. **Webhook not queued** means no delivery was scheduled. Disabling forwarding hides its labels and sending times and pauses pending deliveries; re-enabling resumes them using the current destination and secret.
-
-See [webhook setup, payloads, and retry behavior](docs/integrations.md#forward-new-sms-to-a-webhook) for details.
-
-## Access from another computer
-
-The supplied Compose file listens only on the Docker host's loopback interface. For a remote server, the quickest way to complete setup is an SSH tunnel. Run this **on your computer**, replacing `USER` and `SERVER` with the server's SSH account and address:
-
-```sh
-ssh -N -L 8080:127.0.0.1:8080 USER@SERVER
-```
-
-Keep the tunnel open and visit [http://localhost:8080](http://localhost:8080).
-
-For browser and integration access over a network, use the [HTTPS reverse-proxy guide](docs/nas-maintenance.md#optional-https-access). HTTP sends passwords, API keys, and SMS without transport encryption. For temporary HTTP access on a private network you control, create `.env` beside `compose.yaml`. Replace the example IP with an address assigned to the **Docker host**:
-
-```dotenv
-BIND_ADDRESS=10.20.30.10
-PORT=8080
-ALLOWED_HOSTS=10.20.30.10,localhost,127.0.0.1
-```
-
-Run `docker compose up -d` again, then open `http://10.20.30.10:8080` using your actual address. Restrict access to intended clients. **Complete administrator setup before sharing access:** anyone who can reach an unconfigured instance can create its first administrator.
-
-For HTTPS, follow the [reverse-proxy guide](docs/nas-maintenance.md#optional-https-access). It covers the required proxy and application settings.
-
-## Keep your archive and stay up to date
-
-**Imported SMS are removed from the LTE Pro, so back up the archive.** The `unifi-sms_sms-data` volume contains the database, accounts, credentials, trusted host keys, and application secret. Back up the **entire volume** and encrypt backups separately. Saved device credentials, SMTP passwords, and webhook secrets use the persistent application secret; a copy of the complete volume includes that decryption secret. Older backups can contain plaintext SMTP passwords. Protect all backups as secrets; see [backup and restore](docs/nas-maintenance.md#back-up-the-complete-data-volume).
-
-Replacing the container preserves this volume. `docker compose down` preserves it too; **`docker compose down -v` deletes it**.
-
-To upgrade, back up first, then set `IMAGE_TAG` to the desired published version in `.env` beside `compose.yaml` and run:
-
-```sh
-docker compose pull
-docker compose up -d
-```
-
-Choose a version from [GitHub releases](https://github.com/akinfold/unifi-sms/releases) or [Docker Hub tags](https://hub.docker.com/r/akinfold/unifi-sms/tags). Version tags make upgrades explicit; `latest` can change between pulls.
-
-Upgrading from `0.1.0`? Release `0.1.1` verifies the SSH host key before sending credentials. Devices limited to SHA-1 SSH algorithms need a firmware or SSH configuration update; see the [security policy](SECURITY.md#supported-versions).
-
-## Checks before image publication
-
-The release workflow validates the tagged source before publishing images to GHCR or Docker Hub. A failed check blocks both registries. Required checks cover:
-
-- Security regressions for credential encryption and migration, authentication limits, trusted proxies, malformed JSON, and total SSH and webhook deadlines.
-- Fresh installation and administrator creation.
-- Upgrades that preserve settings, the administrator account, and SMS, then verify SSH import, slot cleanup, email, REST API, MCP, webhooks, and delivery statuses using the saved configuration.
-- SMS import, database storage, device slot cleanup, and email delivery with simulated LTE Pro and SMTP servers.
-- Email delivery labels, sending times, and hiding statuses when forwarding is disabled.
-- REST API and MCP key authentication, rotation, revocation, and SMS CRUD, including an official MCP SDK client.
-- Webhook delivery, retries, the optional secret header, duplicate handling, and delivery labels and times in Chromium.
-
-The container checks use disposable data and synthetic messages. See [release validation](docs/releases.md) for coverage and [local validation commands](docs/development.md#validate-integrations-in-the-container).
-
-## Troubleshooting
-
-Check the container with `docker compose ps`. For startup errors, run `docker compose logs --tail=100 app`.
-
-| What you see | What to do |
-| --- | --- |
-| Image download fails | Check DNS and outbound HTTPS, or switch to the other public registry. |
-| Device search finds nothing | Enter its address manually. Discovery can be limited by Docker networking; check SSH access from the Docker host. |
-| SSH authentication fails | Use the device's SSH account and confirm that any public key has been applied. See the [SSH setup guide](docs/nas-first-run.md#step-3--obtain-the-devices-ssh-account). |
-| SSH host key changed | Verify the new fingerprint independently, then approve it in the device wizard. |
-| HTTP 400 / DisallowedHost | Add the browser's hostname or IP to `ALLOWED_HOSTS`, then run `docker compose up -d`. |
-| Container is healthy, but no SMS appear | Check importer status in the inbox. Container health checks the web service and database, not the device connection. |
-| SIM phone number is missing | Some SIM cards do not store their number. SMS import still works. |
+Follow [backup, restore, and upgrade instructions](docs/nas-maintenance.md), including a Synology backup task that requires no NAS SSH. `latest` tracks the latest stable release; installed containers update when you redeploy them.
 
 ## Documentation and support
 
-- [First launch, SSH credentials, and key setup](docs/nas-first-run.md)
-- [Backups, migration, upgrades, HTTPS, and password recovery](docs/nas-maintenance.md)
-- [Discovery, SMS cleanup, and email delivery: behavior and limits](docs/behavior.md)
-- [REST API, MCP, and webhook setup](docs/integrations.md)
-- [Source builds, development, and validation](docs/development.md)
-- [What changed in 0.1.6](docs/release-notes/0.1.6.md)
-- [Release publishing and registry descriptions](docs/releases.md)
+- [First launch: administrator, device credentials, and test SMS](docs/nas-first-run.md)
+- [Backups, upgrades, migration, HTTPS, and password recovery](docs/nas-maintenance.md)
+- [Import, device cleanup, and delivery behavior](docs/behavior.md)
+- [REST API, MCP, and webhook reference](docs/integrations.md)
+- [Docker host access and troubleshooting](docs/install-docker.md#troubleshooting)
+- [Source builds and development](docs/development.md)
+- [Release validation](docs/releases.md) and [release notes](https://github.com/akinfold/unifi-sms/releases)
 - [Report a bug or suggest a feature](https://github.com/akinfold/unifi-sms/issues)
 
 Contributions are welcome — see [Contributing](CONTRIBUTING.md). Report vulnerabilities privately using the [Security policy](SECURITY.md).
