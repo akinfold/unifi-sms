@@ -112,6 +112,7 @@ jobs:
         run: |
           docker compose --env-file /dev/null -f compose.ghcr.yaml config --quiet
           docker compose --env-file /dev/null -f docs/compose.nas.yaml config --quiet
+          docker compose --env-file /dev/null -f docs/synology/docker-compose.yml config --quiet
       - name: Set up Buildx for release manifest validation
         if: matrix.architecture == 'amd64'
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
