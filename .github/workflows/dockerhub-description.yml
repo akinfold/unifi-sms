@@ -55,5 +55,6 @@ jobs:
           username: ${{ vars.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
           repository: ${{ steps.config.outputs.image }}
+          short-description: Read UniFi LTE Pro SMS on your NAS or Docker host. Email forwarding, REST API, MCP, and webhooks.
           readme-filepath: ./README.md
           enable-url-completion: true
