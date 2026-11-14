@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import tarfile
 from tempfile import TemporaryDirectory
 
 
@@ -53,7 +54,7 @@ def expected_labels():
 
 
 def image_details(image, architecture):
-    details = json.loads(docker('image', 'inspect', image))[0]
+    details = json.loads(docker('image', 'inspect', '--platform', f'linux/{architecture}', image))[0]
     require(details['Os'] == 'linux' and details['Architecture'] == architecture,
             f'Expected linux/{architecture}.')
     labels = details['Config']['Labels'] or {}
@@ -75,13 +76,36 @@ def archive_digest(path):
         return hashlib.file_digest(source, 'sha256').hexdigest()
 
 
+def archive_config_digest(archive, architecture):
+    with tarfile.open(archive) as source:
+        manifests = json.load(source.extractfile('manifest.json'))
+        require(len(manifests) == 1, 'Expected one platform in the image archive.')
+        config = source.extractfile(manifests[0]['Config']).read()
+    details = json.loads(config)
+    require(details.get('os') == 'linux' and details.get('architecture') == architecture,
+            f'Expected linux/{architecture} in the image archive.')
+    labels = details.get('config', {}).get('Labels') or {}
+    require(all(labels.get(key) == value for key, value in expected_labels().items()),
+            'Archived image labels differ from the requested release.')
+    return 'sha256:' + hashlib.sha256(config).hexdigest()
+
+
+def candidate_tag(architecture):
+    return f'unifi-sms:validated-{architecture}'
+
+
+def save_image(image, architecture, archive):
+    docker('image', 'save', '--platform', f'linux/{architecture}', '--output', str(archive), image)
+    return archive_config_digest(archive, architecture)
+
+
 def export(architecture, directory):
-    details = image_details(IMAGE, architecture)
+    image_details(IMAGE, architecture)
     directory.mkdir(parents=True, exist_ok=True)
     archive = directory / 'image.tar'
-    docker('image', 'save', '--output', str(archive), IMAGE)
+    config_digest = save_image(IMAGE, architecture, archive)
     record = {
-        'image_id': details['Id'], 'architecture': architecture,
+        'config_digest': config_digest, 'architecture': architecture,
         'archive_sha256': archive_digest(archive), 'labels': expected_labels(),
     }
     (directory / 'validated.json').write_text(json.dumps(record, indent=2) + '\n')
@@ -97,11 +121,18 @@ def load_candidates(directory):
                 'Validated artifact metadata differs from the requested release.')
         archive = folder / 'image.tar'
         require(archive_digest(archive) == record['archive_sha256'], 'Image archive checksum differs.')
+        config_digest = archive_config_digest(archive, architecture)
+        require(config_digest == record['config_digest'], 'Archived image config differs from the validated config.')
         docker('image', 'load', '--input', str(archive))
         details = image_details(IMAGE, architecture)
-        require(details['Id'] == record['image_id'], 'Loaded image differs from the validated image ID.')
-        # The next archive has the same local tag; retain each image by its content ID.
-        candidates[architecture] = details['Id']
+        tag = candidate_tag(architecture)
+        docker('image', 'tag', details['Id'], tag)
+        # Docker's local ID may identify a manifest or index, depending on its image
+        # store. Compare the raw config bytes after loading and retain a separate tag.
+        with TemporaryDirectory(prefix='unifi-sms-loaded-image-') as temporary:
+            loaded_digest = save_image(tag, architecture, Path(temporary) / 'image.tar')
+        require(loaded_digest == config_digest, 'Loaded image config differs from the validated config.')
+        candidates[architecture] = config_digest
     return candidates
 
 
@@ -130,7 +161,7 @@ def verify_index(reference, candidates):
                 'Published manifest has an unexpected or duplicate platform.')
         manifest = raw_manifest(f"{repository}@{item['digest']}")
         actual[architecture] = manifest['config']['digest']
-    require(actual == candidates, 'Published image configs differ from the validated image IDs.')
+    require(actual == candidates, 'Published image configs differ from the validated config digests.')
     return manifest_digest(reference)
 
 
@@ -175,15 +206,15 @@ def promote(candidates):
     digests = []
     for repository in (os.environ['GHCR_IMAGE'], os.environ['DOCKERHUB_IMAGE']):
         sources = []
-        for architecture, image_id in candidates.items():
+        for architecture, config_digest in candidates.items():
             tag = f"{repository}:sha-{os.environ['RELEASE_SHA']}-{architecture}"
-            docker('image', 'tag', image_id, tag)
+            docker('image', 'tag', candidate_tag(architecture), tag)
             subprocess.run(['docker', 'image', 'push', '--platform', f'linux/{architecture}', tag],
                            check=True)
             digest = manifest_digest(tag)
             reference = f'{repository}@{digest}'
-            require(raw_manifest(reference)['config']['digest'] == image_id,
-                    'Pushed image config differs from the validated image ID.')
+            require(raw_manifest(reference)['config']['digest'] == config_digest,
+                    'Pushed image config differs from the validated config digest.')
             sources.append(reference)
         version, sha_tag = publish_index(repository, sources)
         digest = verify_index(version, candidates)
@@ -210,7 +241,7 @@ def main():
         export(args.architecture, args.directory)
     else:
         candidates = load_candidates(args.directory)
-        print('Verified both validated image archives, image IDs, release labels, and platforms.')
+        print('Verified both validated image archives, config digests, release labels, and platforms.')
         if args.operation == 'promote':
             promote(candidates)
 
