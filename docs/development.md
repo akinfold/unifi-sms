@@ -12,7 +12,7 @@ docker compose -f compose.yaml up --build -d
 docker compose -f compose.yaml ps
 ```
 
-Open [http://localhost:8098](http://localhost:8098), create the administrator, and complete the device wizard. The source Compose file builds `unifi-sms:0.1.6` locally, binds port `8098` to loopback, and uses project `unifi-sms`, container `unifi-sms-app`, and volume `unifi-sms_sms-data`.
+Open [http://localhost:8098](http://localhost:8098), create the administrator, and complete the device wizard. The source Compose file builds `unifi-sms:0.1.7` locally, binds port `8098` to loopback, and uses project `unifi-sms`, container `unifi-sms-app`, and volume `unifi-sms_sms-data`.
 
 If host port **8098** is in use, edit `.env` in the repository root and set `PORT=18098`, or choose another free host port. Keep the other settings and container port **8000** unchanged. Apply the change with `docker compose -f compose.yaml up --build -d`, then open `http://localhost:18098` using your chosen port. This recreates the container while keeping its data volume; restarting it alone does not apply a new port mapping. For an existing installation, retain its current `PORT` value unless you intend to change it.
 
