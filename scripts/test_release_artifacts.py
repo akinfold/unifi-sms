@@ -2,12 +2,14 @@
 
 import hashlib
 import importlib.util
+import io
 import json
 from pathlib import Path
 import sys
+import tarfile
 from tempfile import TemporaryDirectory
 import unittest
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 
 MODULE_PATH = Path(__file__).resolve().parents[1] / '.github/scripts/release-artifacts.py'
@@ -17,45 +19,107 @@ spec.loader.exec_module(release)
 
 
 class ReleaseArtifactTests(unittest.TestCase):
+    def write_archive(self, archive, architecture, command=None, labels=None):
+        config = json.dumps({'architecture': architecture, 'os': 'linux',
+                             'config': {'Labels': labels or {'release': 'expected'}, 'Cmd': command},
+                             'rootfs': {'type': 'layers', 'diff_ids': []}}).encode()
+        digest = hashlib.sha256(config).hexdigest()
+        manifest = json.dumps([{'Config': digest + '.json', 'RepoTags': [release.IMAGE], 'Layers': []}]).encode()
+        with tarfile.open(archive, 'w') as output:
+            for name, data in ((digest + '.json', config), ('manifest.json', manifest)):
+                entry = tarfile.TarInfo(name)
+                entry.size = len(data)
+                output.addfile(entry, io.BytesIO(data))
+        return 'sha256:' + digest
+
     def create_archives(self, root):
+        candidates = {}
         for architecture in release.PLATFORMS:
             folder = root / f'validated-image-{architecture}'
             folder.mkdir()
             archive = folder / 'image.tar'
-            archive.write_bytes(f'archive-{architecture}'.encode())
+            candidates[architecture] = self.write_archive(archive, architecture)
             record = {
-                'architecture': architecture, 'image_id': f'sha256:{architecture}',
+                'architecture': architecture, 'config_digest': candidates[architecture],
                 'archive_sha256': release.archive_digest(archive), 'labels': {'release': 'expected'},
             }
             (folder / 'validated.json').write_text(json.dumps(record))
+        return candidates
 
-    def test_load_retains_each_platform_by_validated_image_id(self):
+    def save_loaded_image(self, *args, changed_architecture=None):
+        if args[:2] == ('image', 'save'):
+            architecture = args[3].split('/')[1]
+            self.write_archive(Path(args[5]), architecture,
+                               command=['changed'] if architecture == changed_architecture else None)
+        return ''
+
+    def test_load_retains_platform_tags_when_local_ids_are_not_config_digests(self):
         with TemporaryDirectory() as directory:
             root = Path(directory)
-            self.create_archives(root)
+            candidates = self.create_archives(root)
             with patch.object(release, 'expected_labels', return_value={'release': 'expected'}), \
-                 patch.object(release, 'docker'), \
+                 patch.object(release, 'docker', side_effect=self.save_loaded_image) as docker, \
                  patch.object(release, 'image_details', side_effect=[
-                     {'Id': 'sha256:amd64'}, {'Id': 'sha256:arm64'},
+                     {'Id': 'sha256:local-amd64-manifest'}, {'Id': 'sha256:local-arm64-index'},
                  ]):
-                self.assertEqual(release.load_candidates(root), {
-                    'amd64': 'sha256:amd64', 'arm64': 'sha256:arm64',
-                })
+                self.assertEqual(release.load_candidates(root), candidates)
+            docker.assert_has_calls([
+                call('image', 'tag', 'sha256:local-amd64-manifest', 'unifi-sms:validated-amd64'),
+                call('image', 'tag', 'sha256:local-arm64-index', 'unifi-sms:validated-arm64'),
+            ], any_order=True)
 
-    def test_second_platform_identity_failure_prevents_all_publication(self):
+    def test_export_records_config_digest_instead_of_daemon_local_id(self):
         with TemporaryDirectory() as directory:
             root = Path(directory)
-            self.create_archives(root)
+            with patch.object(release, 'expected_labels', return_value={'release': 'expected'}), \
+                 patch.object(release, 'docker', side_effect=self.save_loaded_image), \
+                 patch.object(release, 'image_details', return_value={'Id': 'sha256:local-index'}):
+                release.export('amd64', root)
+                record = json.loads((root / 'validated.json').read_text())
+                self.assertEqual(record['config_digest'], release.archive_config_digest(root / 'image.tar', 'amd64'))
+                self.assertNotEqual(record['config_digest'], 'sha256:local-index')
+                self.assertNotIn('image_id', record)
+
+    def test_second_platform_config_failure_prevents_all_publication(self):
+        def changed_save(*args):
+            return self.save_loaded_image(*args, changed_architecture='arm64')
+
+        with TemporaryDirectory() as directory:
+            self.create_archives(Path(directory))
             with patch.object(sys, 'argv', ['release-artifacts.py', 'promote', '--directory', directory]), \
                  patch.object(release, 'expected_labels', return_value={'release': 'expected'}), \
-                 patch.object(release, 'docker'), \
-                 patch.object(release, 'image_details', side_effect=[
-                     {'Id': 'sha256:amd64'}, {'Id': 'sha256:unvalidated'},
-                 ]), \
+                 patch.object(release, 'docker', side_effect=changed_save), \
+                 patch.object(release, 'image_details', return_value={'Id': 'sha256:local-index'}), \
                  patch.object(release, 'promote') as promote:
-                with self.assertRaisesRegex(RuntimeError, 'validated image ID'):
+                with self.assertRaisesRegex(RuntimeError, 'Loaded image config differs'):
                     release.main()
                 promote.assert_not_called()
+
+    def test_changed_config_with_matching_release_labels_is_rejected_before_loading(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.create_archives(root)
+            folder = root / 'validated-image-amd64'
+            self.write_archive(folder / 'image.tar', 'amd64', command=['changed'])
+            record = json.loads((folder / 'validated.json').read_text())
+            record['archive_sha256'] = release.archive_digest(folder / 'image.tar')
+            (folder / 'validated.json').write_text(json.dumps(record))
+            with patch.object(release, 'expected_labels', return_value={'release': 'expected'}), \
+                 patch.object(release, 'docker') as docker:
+                with self.assertRaisesRegex(RuntimeError, 'Archived image config differs'):
+                    release.load_candidates(root)
+                docker.assert_not_called()
+
+    def test_wrong_architecture_or_labels_are_rejected(self):
+        with TemporaryDirectory() as directory:
+            archive = Path(directory) / 'image.tar'
+            with patch.object(release, 'expected_labels', return_value={'release': 'expected'}):
+                self.write_archive(archive, 'arm64')
+                with self.assertRaisesRegex(RuntimeError, 'Expected linux/amd64'):
+                    release.archive_config_digest(archive, 'amd64')
+                self.write_archive(archive, 'amd64', labels={'release': 'wrong'})
+                with self.assertRaisesRegex(RuntimeError, 'Archived image labels'):
+                    release.archive_config_digest(archive, 'amd64')
 
     def test_changed_archive_is_rejected_before_loading(self):
         with TemporaryDirectory() as directory:
@@ -147,7 +211,7 @@ class ReleaseArtifactTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, 'OCI media types'):
                 release.verify_index('example/image:0.1.6', {})
 
-    def test_registry_config_must_match_both_validated_image_ids(self):
+    def test_registry_config_must_match_both_validated_config_digests(self):
         index = {'mediaType': release.OCI_INDEX, 'annotations': {'org.opencontainers.image.description': 'Expected'}, 'manifests': [
             {'digest': 'sha256:a', 'platform': {'os': 'linux', 'architecture': 'amd64'}},
             {'digest': 'sha256:b', 'platform': {'os': 'linux', 'architecture': 'arm64'}},
@@ -157,7 +221,7 @@ class ReleaseArtifactTests(unittest.TestCase):
                  {'config': {'digest': 'sha256:amd64'}},
                  {'config': {'digest': 'sha256:unvalidated'}},
              ]):
-            with self.assertRaisesRegex(RuntimeError, 'validated image IDs'):
+            with self.assertRaisesRegex(RuntimeError, 'validated config digests'):
                 release.verify_index('example/image:1.0.0', {
                     'amd64': 'sha256:amd64', 'arm64': 'sha256:arm64',
                 })

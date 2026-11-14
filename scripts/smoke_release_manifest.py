@@ -24,8 +24,8 @@ def docker(*arguments):
     return subprocess.check_output(['docker', *arguments], text=True, timeout=120).strip()
 
 
-def load_fixture(directory, architecture):
-    config = json.dumps({'architecture': architecture, 'os': 'linux', 'config': {},
+def load_fixture(directory, architecture, labels):
+    config = json.dumps({'architecture': architecture, 'os': 'linux', 'config': {'Labels': labels},
                          'rootfs': {'type': 'layers', 'diff_ids': []}}).encode()
     digest = hashlib.sha256(config).hexdigest()
     config_name = digest + '.json'
@@ -66,6 +66,7 @@ def main():
     spec = importlib.util.spec_from_file_location('release_artifacts', args.helper)
     release = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(release)
+    release.IMAGE = 'unifi-sms-manifest-smoke:source'
     tags = []
     started = False
     try:
@@ -75,10 +76,20 @@ def main():
         repository = f'localhost:{port}/unifi-sms'
         wait_for_registry(port)
         with TemporaryDirectory(prefix='unifi-sms-manifest-smoke-') as temporary:
-            fixtures = {arch: load_fixture(Path(temporary), arch) for arch in release.PLATFORMS}
-            tags.extend(tag for tag, _ in fixtures.values())
-            candidates = {arch: image_id for arch, (_, image_id) in fixtures.items()}
             os.environ.update(IMAGE_VERSION='0.0.0', RELEASE_SHA='a' * 40)
+            os.environ.setdefault('GITHUB_REPOSITORY', 'example/unifi-sms')
+            fixtures = {arch: load_fixture(Path(temporary), arch, release.expected_labels())
+                        for arch in release.PLATFORMS}
+            tags.extend(tag for tag, _ in fixtures.values())
+            tags.append(release.IMAGE)
+            for arch, (fixture, _) in fixtures.items():
+                docker('image', 'tag', fixture, release.IMAGE)
+                release.export(arch, Path(temporary) / f'validated-image-{arch}')
+            # Load both archives under the same source tag, as release promotion does.
+            # Config digests must survive the daemon's manifest/index ID conversion.
+            tags.extend(release.candidate_tag(arch) for arch in release.PLATFORMS)
+            candidates = release.load_candidates(Path(temporary))
+            assert candidates == {arch: digest for arch, (_, digest) in fixtures.items()}
             indexes = []
             for suffix in ('ghcr', 'dockerhub'):
                 target = f'{repository}-{suffix}'
@@ -86,7 +97,7 @@ def main():
                 for arch, (fixture, _) in fixtures.items():
                     tag = f'{target}:{arch}'
                     tags.append(tag)
-                    docker('image', 'tag', fixture, tag)
+                    docker('image', 'tag', release.candidate_tag(arch), tag)
                     docker('image', 'push', '--platform', f'linux/{arch}', tag)
                     manifest = release.raw_manifest(tag)
                     assert manifest['mediaType'] == 'application/vnd.docker.distribution.manifest.v2+json'
@@ -97,7 +108,7 @@ def main():
                 assert release.manifest_digest(sha_tag) == digest
                 indexes.append(digest)
             assert indexes[0] == indexes[1], 'Registry indexes differ.'
-        print('Release manifest check passed: OCI description, both platforms, unchanged configs, identical registry digests.')
+        print('Release manifest check passed: archive save/load, OCI description, both platforms, unchanged configs, identical registry digests.')
     finally:
         if started:
             docker('rm', '--force', CONTAINER)
