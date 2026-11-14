@@ -41,6 +41,23 @@ def load_fixture(directory, architecture):
     return tag, 'sha256:' + digest
 
 
+def wait_for_registry(port):
+    deadline = time.monotonic() + 20
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise RuntimeError('The isolated test registry did not start.') from None
+        try:
+            with urlopen(f'http://127.0.0.1:{port}/v2/', timeout=min(1, remaining)) as response:
+                assert response.status == 200
+            return
+        except (OSError, URLError, HTTPException):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise RuntimeError('The isolated test registry did not start.') from None
+            time.sleep(min(0.2, remaining))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--port', type=int, default=5108)
@@ -56,16 +73,7 @@ def main():
         started = True
         port = args.port
         repository = f'localhost:{port}/unifi-sms'
-        deadline = time.monotonic() + 20
-        while True:
-            try:
-                with urlopen(f'http://127.0.0.1:{port}/v2/', timeout=1) as response:
-                    assert response.status == 200
-                break
-            except (URLError, TimeoutError, HTTPException):
-                if time.monotonic() >= deadline:
-                    raise RuntimeError('The isolated test registry did not start.') from None
-                time.sleep(0.2)
+        wait_for_registry(port)
         with TemporaryDirectory(prefix='unifi-sms-manifest-smoke-') as temporary:
             fixtures = {arch: load_fixture(Path(temporary), arch) for arch in release.PLATFORMS}
             tags.extend(tag for tag, _ in fixtures.values())
