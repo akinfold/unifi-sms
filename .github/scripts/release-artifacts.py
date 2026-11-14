@@ -54,7 +54,7 @@ def expected_labels():
 
 
 def image_details(image, architecture):
-    details = json.loads(docker('image', 'inspect', '--platform', f'linux/{architecture}', image))[0]
+    details = json.loads(docker('image', 'inspect', image))[0]
     require(details['Os'] == 'linux' and details['Architecture'] == architecture,
             f'Expected linux/{architecture}.')
     labels = details['Config']['Labels'] or {}
