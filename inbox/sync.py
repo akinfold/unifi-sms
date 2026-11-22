@@ -14,6 +14,7 @@ from .device import refresh_phone
 from .views import initialized
 from .forwarding import queue_forward
 from .webhooks import queue_webhook
+from .trust import trust_lock
 
 
 def fingerprint(source, pdu):
@@ -111,9 +112,10 @@ def sync_once(client_factory=ModemClient):
         if not acquired:
             return
         state, _ = SyncStatus.objects.get_or_create(pk=1)
-        state.attempted_at = timezone.now()
         try:
-            config = get_connection()
+            with trust_lock():
+                state.attempted_at = timezone.now()
+                config = get_connection(_locked=True)
         except ValueError:
             state.state = "error"
             state.detail = "Device connection settings are invalid."
