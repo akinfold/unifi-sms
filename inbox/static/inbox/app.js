@@ -156,6 +156,87 @@ function renderPhone(data) {
   byId("refresh-phone").disabled = phoneBusy || data.state === "unconfigured";
   byId("refresh-phone").textContent = phoneBusy ? "Updating…" : "Update from device";
 }
+const deviceCatalogRoot = "https://static.ui.com/fingerprint/ui/";
+const catalogList = (value) => Array.isArray(value) ? value : [];
+const deviceIdentifier = (value) => typeof value === "string" ? value.trim().toUpperCase() : "";
+const deviceSymbol = byId("device-symbol");
+const deviceFallback = deviceSymbol.firstElementChild;
+let deviceImage, deviceImageModel = "";
+let deviceImages = new Map(), catalogRequest, catalogRefreshAt = 0;
+
+function indexDeviceImages(devices) {
+  const images = new Map();
+  for (const device of devices) {
+    if (typeof device?.id !== "string" || !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(device.id)) continue;
+    const variant = ["nopadding", "default"].find((name) => {
+      const hash = device.images?.[name];
+      return typeof hash === "string" && /^[a-f0-9]{32}$/i.test(hash);
+    });
+    if (!variant) continue;
+
+    const hash = device.images[variant];
+    const source = `${deviceCatalogRoot}images/${device.id}/${variant}/${hash}.png`;
+    const identifiers = [
+      device.id, device.sku, device.sysid, device.unifi?.network?.model,
+      ...catalogList(device.shortnames), ...catalogList(device.sysids),
+      ...catalogList(device.triplets).flatMap((triplet) => [triplet?.k1, triplet?.k2, triplet?.k3]),
+    ];
+    for (const value of identifiers) {
+      const identifier = deviceIdentifier(value);
+      if (!identifier) continue;
+      if (!images.has(identifier)) images.set(identifier, {hash, source});
+      else if (images.get(identifier)?.hash !== hash) images.set(identifier, null);
+    }
+  }
+  return images;
+}
+
+function refreshDeviceCatalog() {
+  if (!catalogRequest && Date.now() >= catalogRefreshAt) {
+    catalogRequest = fetch(`${deviceCatalogRoot}public.json`, {
+      credentials: "omit", referrerPolicy: "no-referrer", redirect: "error",
+      signal: AbortSignal.timeout?.(8000),
+    }).then(async (response) => {
+      if (!response.ok) throw new Error("Could not load the UniFi device catalog.");
+      const catalog = await response.json();
+      if (!Array.isArray(catalog?.devices)) throw new Error("Invalid UniFi device catalog.");
+      deviceImages = indexDeviceImages(catalog.devices);
+      catalogRefreshAt = Date.now() + 86_400_000;
+    }).catch(() => {
+      catalogRefreshAt = Date.now() + 60_000;
+    }).finally(() => {
+      catalogRequest = undefined;
+    });
+  }
+  return catalogRequest;
+}
+
+async function renderDeviceImage(value) {
+  const model = deviceIdentifier(value);
+  if (model !== deviceImageModel) {
+    deviceImageModel = model;
+    showDeviceImage();
+  }
+  if (!model) return;
+  await refreshDeviceCatalog();
+  if (model === deviceImageModel) showDeviceImage(deviceImages.get(model)?.source);
+}
+
+function showDeviceImage(source) {
+  if (source === deviceImage?.src) return;
+  deviceImage = undefined;
+  deviceSymbol.replaceChildren(deviceFallback);
+  if (!source) return;
+
+  const image = new Image();
+  image.alt = "";
+  image.referrerPolicy = "no-referrer";
+  image.addEventListener("load", () => {
+    if (deviceImage === image) deviceSymbol.replaceChildren(image);
+  }, {once: true});
+  deviceImage = image;
+  image.src = source;
+}
 function scheduleStatusCheck() {
   clearTimeout(statusTimer);
   if (phoneBusy || importInProgress()) statusTimer = setTimeout(syncStatus, 2000);
@@ -177,6 +258,7 @@ async function syncStatus() {
     byId("sync-dot").className = `dot ${data.state}`;
     byId("device-address").textContent = data.device.address || "Not configured";
     byId("device-model").textContent = data.device.model || "Not available";
+    renderDeviceImage(data.device.model);
     byId("model-detail").textContent = data.device.error ? (data.device.model ? "Update failed · saved model" : "Could not read device model") : "Model reported by device";
     renderPhone(data.phone);
     if (wasImporting && !importInProgress() && canRefreshInbox()) await load();
