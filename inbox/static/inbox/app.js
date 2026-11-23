@@ -1,7 +1,7 @@
 "use strict";
 const byId = (id) => document.getElementById(id);
 const token = document.querySelector("#csrf input").value;
-let phoneBusy = false, phoneTimer;
+let phoneBusy = false, importState = "", statusTimer, statusRequestNumber = 0;
 let page = 1, pages = 1, selected = new Set(), opened = null, requestNumber = 0, detailRequestNumber = 0;
 const date = (value) => new Date(value).toLocaleString([], {dateStyle: "medium", timeStyle: "short"});
 const node = (tag, className, text) => { const item = document.createElement(tag); item.className = className; if (text !== undefined) item.textContent = text; return item; };
@@ -66,6 +66,23 @@ function selection() {
   byId("select-all").checked = boxes.length > 0 && boxes.every((box) => box.checked);
   byId("select-all").indeterminate = boxes.some((box) => box.checked) && !byId("select-all").checked;
 }
+function importInProgress() {
+  return importState === "queued" || importState === "syncing";
+}
+function emptyInboxText() {
+  if (byId("search").value || byId("unread").checked) return "No messages match your filters.";
+  if (importInProgress()) return "Messages will appear here as they are imported.";
+  return ({
+    "": "Loading your inbox…",
+    waiting: "Connect a device in Settings to import messages.",
+    warning: "Some messages could not be imported. Check the import status above.",
+    error: "Check the connection status above to resume importing.",
+    stale: "Messages will appear when the importer is running again."
+  })[importState] || "No messages yet. New messages will appear here automatically.";
+}
+function canRefreshInbox() {
+  return !selected.size && !byId("delete-dialog").open;
+}
 async function load() {
   const sequence = ++requestNumber;
   try {
@@ -79,7 +96,11 @@ async function load() {
     byId("list").replaceChildren();
     if (!data.forwarding_enabled && byId("reader-forwarding")) byId("reader-forwarding").replaceChildren();
     if (!data.webhook_enabled && byId("reader-webhook")) byId("reader-webhook").replaceChildren();
-    if (!data.messages.length) byId("list").append(node("div", "empty", byId("search").value || byId("unread").checked ? "No messages match your filters." : "Your inbox is ready. New messages will appear here automatically."));
+    if (!data.messages.length) {
+      const empty = node("div", "empty", emptyInboxText());
+      empty.id = "empty-inbox";
+      byId("list").append(empty);
+    }
     for (const message of data.messages) {
       const row = node("div", `message-row ${message.read ? "" : "unread"} ${opened === message.id ? "active" : ""}`);
       const checkbox = node("input", "message-checkbox"); checkbox.type = "checkbox"; checkbox.setAttribute("aria-label", `Select message from ${message.sender}`);
@@ -134,13 +155,23 @@ function renderPhone(data) {
   byId("phone-status").classList.toggle("has-error", data.state === "error");
   byId("refresh-phone").disabled = phoneBusy || data.state === "unconfigured";
   byId("refresh-phone").textContent = phoneBusy ? "Updating…" : "Update from device";
-  clearTimeout(phoneTimer);
-  if (phoneBusy) phoneTimer = setTimeout(syncStatus, 2000);
+}
+function scheduleStatusCheck() {
+  clearTimeout(statusTimer);
+  if (phoneBusy || importInProgress()) statusTimer = setTimeout(syncStatus, 2000);
 }
 async function syncStatus() {
+  const sequence = ++statusRequestNumber;
+  clearTimeout(statusTimer);
   try {
     const data = await api("/api/status/");
-    byId("sync-title").textContent = ({ok:"Inbox up to date", syncing:"Importing messages", waiting:"Import not configured", warning:"Some slots need attention", error:"Connection needs attention", stale:"Importer unavailable"})[data.state] || "Waiting";
+    if (sequence !== statusRequestNumber) return;
+    const wasImporting = importInProgress();
+    importState = data.state;
+    const empty = byId("empty-inbox");
+    const emptyText = emptyInboxText();
+    if (empty && empty.textContent !== emptyText) empty.textContent = emptyText;
+    byId("sync-title").textContent = ({ok:"Inbox up to date", queued:"Import queued", syncing:"Importing messages", waiting:"Import not configured", warning:"Some slots need attention", error:"Connection needs attention", stale:"Importer unavailable"})[data.state] || "Waiting";
     byId("sync-detail").textContent = data.detail;
     byId("sync-time").textContent = data.last_success ? `Last import ${date(data.last_success)}` : "No completed import yet";
     byId("sync-dot").className = `dot ${data.state}`;
@@ -148,13 +179,20 @@ async function syncStatus() {
     byId("device-model").textContent = data.device.model || "Not available";
     byId("model-detail").textContent = data.device.error ? (data.device.model ? "Update failed · saved model" : "Could not read device model") : "Model reported by device";
     renderPhone(data.phone);
-  } catch (error) { showError(error); }
+    if (wasImporting && !importInProgress() && canRefreshInbox()) await load();
+  } catch (error) {
+    if (sequence === statusRequestNumber) showError(error);
+  } finally {
+    if (sequence === statusRequestNumber) scheduleStatusCheck();
+  }
 }
 byId("refresh-phone").addEventListener("click", async () => {
   byId("refresh-phone").disabled = true;
   byId("refresh-phone").textContent = "Updating…";
-  try { renderPhone(await api("/api/phone/refresh/", {})); }
-  catch (error) {
+  try {
+    renderPhone(await api("/api/phone/refresh/", {}));
+    scheduleStatusCheck();
+  } catch (error) {
     byId("phone-detail").textContent = error.message;
     byId("phone-status").classList.add("has-error");
     byId("refresh-phone").disabled = false;
@@ -176,5 +214,5 @@ byId("confirm-delete").addEventListener("click", async () => {
   catch (error) {byId("delete-dialog").close(); showError(error);}
   finally {byId("confirm-delete").disabled = false;}
 });
-load(); syncStatus();
-setInterval(() => { if (!document.hidden) {syncStatus(); if (!selected.size && !byId("delete-dialog").open) load();} }, 30000);
+syncStatus().then(load);
+setInterval(() => { if (!document.hidden) {syncStatus(); if (canRefreshInbox()) load();} }, 30000);

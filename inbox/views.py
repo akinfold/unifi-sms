@@ -15,6 +15,7 @@ from django.shortcuts import redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 
+from .connection import queued_import_at
 from .device import configured, device_status, phone_status, request_phone_refresh
 from .forms import AdminAuthenticationForm, SetupForm
 from .models import (
@@ -263,24 +264,21 @@ def delete_messages(request):
 @require_GET
 @admin_required
 def status(request):
-    state = SyncStatus.objects.filter(pk=1).first()
-    stale = (
-        state is not None
-        and state.attempted_at is not None
-        and timezone.now() - state.attempted_at
-        > timedelta(seconds=max(180, settings.POLL_INTERVAL * 3))
-    )
+    state = SyncStatus.objects.filter(pk=1).first() or SyncStatus(detail="Waiting for the importer.")
+    queued_at = queued_import_at(state.attempted_at)
+    last_activity = queued_at or state.attempted_at
+    stale_after = timedelta(seconds=max(180, settings.POLL_INTERVAL * 3))
+    if last_activity and timezone.now() - last_activity > stale_after:
+        label, detail = "stale", "The importer has stopped reporting."
+    elif queued_at:
+        label, detail = "queued", "Waiting for the importer to start."
+    else:
+        label, detail = state.state, state.detail
     return JsonResponse(
         {
-            "state": "stale" if stale else state.state if state else "waiting",
-            "detail": "The importer has stopped reporting."
-            if stale
-            else state.detail
-            if state
-            else "Waiting for the importer.",
-            "last_success": state.succeeded_at.isoformat()
-            if state and state.succeeded_at
-            else None,
+            "state": label,
+            "detail": detail,
+            "last_success": state.succeeded_at.isoformat() if state.succeeded_at else None,
             "pending": Receipt.objects.filter(cleared_at__isnull=True).count(),
             "phone": phone_status(),
             "device": device_status(),

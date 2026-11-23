@@ -4,7 +4,7 @@ import uuid
 from datetime import timedelta
 from io import StringIO
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 from django.contrib.auth.models import User
@@ -12,9 +12,14 @@ from django.db import DatabaseError
 from django.test import Client, TestCase, override_settings
 from django.utils import timezone
 
+from modem.client import ModemError
+from modem.tests.test_pdu import make_pdu, septets
+
 from .connection import decrypt_secret, get_connection
+from .management.commands.runworker import Command
 from .models import DeviceInfo, DeviceSettings, DeviceSetup
 from .probe import ProbeError
+from .sync import sync_once
 from .test_helpers import TEST_HOST_KEY, seed_connection
 from .trust import key_fingerprint
 
@@ -214,6 +219,91 @@ class ConnectionWizardTests(TestCase):
         self.assertEqual((settings.DATA_DIR / "known_hosts").stat().st_mode & 0o777, 0o600)
         self.assertEqual(DeviceInfo.objects.get().numbers, self.probe["numbers"])
         self.assertFalse(DeviceSetup.objects.exists())
+
+    def test_worker_imports_after_trust_before_next_scheduled_scan(self):
+        draft = self.checked()
+        pdu = make_pdu(septets([72, 105]), udl=2)
+        modem = MagicMock()
+        modem.__enter__.return_value = modem
+        modem.read_pdu.return_value = pdu
+        modem.list_pdus.return_value = {0: pdu}
+        factory = MagicMock(return_value=modem)
+        stop = MagicMock()
+        stop.is_set.side_effect = [False, False, True]
+
+        def between_iterations(_):
+            if stop.wait.call_count != 1:
+                return
+            self.assertEqual(self.client.get("/api/status/").json()["state"], "waiting")
+            response = self.client.post(URL, {"action": "trust", "probe_id": str(draft.probe_id)})
+            self.assertRedirects(response, "/")
+            self.assertEqual(self.client.get("/api/status/").json()["state"], "queued")
+            self.assertEqual(self.client.get("/api/messages/").json()["messages"], [])
+
+        stop.wait.side_effect = between_iterations
+        worker = "inbox.management.commands.runworker"
+        with (
+            patch(f"{worker}.threading.Event", return_value=stop),
+            patch(f"{worker}.signal.signal"),
+            patch(f"{worker}.time") as clock,
+            patch(f"{worker}.sync_once", side_effect=lambda: sync_once(factory)),
+            patch(f"{worker}.refresh_phone_once") as refresh_phone,
+            patch(f"{worker}.forward_pending"),
+            patch(f"{worker}.deliver_webhooks"),
+        ):
+            clock.monotonic.return_value = 100
+
+            def check_phone_refresh():
+                if refresh_phone.call_count == 2:
+                    modem.delete.assert_called_once_with(0)
+
+            refresh_phone.side_effect = check_phone_refresh
+            Command().handle(once=False)
+
+        status = self.client.get("/api/status/").json()
+        self.assertEqual(status["state"], "ok")
+        self.assertIsNotNone(status["last_success"])
+        self.assertEqual(self.client.get("/api/messages/").json()["messages"][0]["text"], "Hi")
+
+    def test_first_import_reports_success_with_empty_sim(self):
+        draft = self.checked()
+        self.assertRedirects(
+            self.client.post(URL, {"action": "trust", "probe_id": str(draft.probe_id)}), "/"
+        )
+        self.assertEqual(self.client.get("/api/status/").json()["state"], "queued")
+        modem = MagicMock()
+        modem.__enter__.return_value = modem
+
+        def list_empty_sim():
+            self.assertEqual(self.client.get("/api/status/").json()["state"], "syncing")
+            return {}
+
+        modem.list_pdus.side_effect = list_empty_sim
+        sync_once(MagicMock(return_value=modem))
+
+        status = self.client.get("/api/status/").json()
+        self.assertEqual(status["state"], "ok")
+        self.assertIsNotNone(status["last_success"])
+        self.assertEqual(self.client.get("/api/messages/").json()["messages"], [])
+        modem.delete.assert_not_called()
+
+    def test_first_import_reports_read_failure(self):
+        draft = self.checked()
+        self.assertRedirects(
+            self.client.post(URL, {"action": "trust", "probe_id": str(draft.probe_id)}), "/"
+        )
+        self.assertEqual(self.client.get("/api/status/").json()["state"], "queued")
+        modem = MagicMock()
+        modem.__enter__.return_value = modem
+        modem.list_pdus.side_effect = ModemError("synthetic private response")
+        sync_once(MagicMock(return_value=modem))
+
+        status = self.client.get("/api/status/").json()
+        self.assertEqual(status["state"], "error")
+        self.assertIsNone(status["last_success"])
+        self.assertNotIn("synthetic private response", status["detail"])
+        self.assertEqual(self.client.get("/api/messages/").json()["messages"], [])
+        modem.delete.assert_not_called()
 
     def test_expired_or_forged_check_cannot_be_trusted(self):
         draft = self.checked()

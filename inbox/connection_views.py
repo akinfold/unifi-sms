@@ -222,7 +222,7 @@ def device_settings(request):
                            error="Could not save the trusted device. Your previous connection is unchanged. Check the persistent data volume and try again.")
         request.session.pop("device_step", None)
         request_phone_refresh()
-        messages.success(request, "Device trusted. SMS import will start on the worker's next scan.")
+        messages.success(request, "Device connected.")
         return redirect("home")
     return HttpResponse("Unknown setup action.", status=400)
 

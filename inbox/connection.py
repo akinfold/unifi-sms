@@ -62,6 +62,13 @@ def connection_values():
     return values, ()
 
 
+def queued_import_at(attempted_at):
+    device = DeviceSettings.objects.filter(pk=1, trusted_at__isnull=False)
+    if attempted_at is not None:
+        device = device.filter(trusted_at__gt=attempted_at)
+    return device.values_list("trusted_at", flat=True).first()
+
+
 @dataclass(frozen=True)
 class ConnectionConfig:
     host: str
