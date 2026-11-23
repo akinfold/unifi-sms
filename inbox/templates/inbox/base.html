@@ -4,7 +4,7 @@
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}UniFi SMS{% endblock %}</title>
   <link rel="stylesheet" href="{% static 'inbox/app.css' %}">{% block extra_styles %}{% endblock %}
-  <link rel="icon" href="data:,">
+  <link rel="icon" type="image/svg+xml" sizes="any" href="{% static 'inbox/favicon.svg' %}">
 </head>
 <body class="{% if user.is_authenticated %}signed-in{% else %}signed-out{% endif %}">
 <a class="skip-link" href="#main-content">Skip to content</a>
