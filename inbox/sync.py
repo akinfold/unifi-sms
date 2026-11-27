@@ -10,6 +10,7 @@ from modem.client import ModemClient
 from modem.pdu import decode_pdu
 from .connection import get_connection
 from .models import Message, Receipt, SyncStatus
+from .outbound import connection_id, match_setup_receipt
 from .device import refresh_phone
 from .views import initialized
 from .forwarding import queue_forward
@@ -35,7 +36,7 @@ def importer_lock():
             fcntl.flock(stream, fcntl.LOCK_UN)
 
 
-def archive(source, slot, pdu):
+def archive(source, slot, pdu, *, device_identity=""):
     digest = fingerprint(source, pdu)
     # A durable transaction must finish before any modem deletion can start.
     with transaction.atomic(durable=True):
@@ -89,8 +90,9 @@ def archive(source, slot, pdu):
         message.received_at = min(message.received_at, decoded.received_at)
         message.read_at = None
         message.save()
-        queue_forward(message)
-        queue_webhook(message)
+        if not device_identity or not match_setup_receipt(device_identity, decoded):
+            queue_forward(message)
+            queue_webhook(message)
         return receipt
 
 
@@ -116,6 +118,7 @@ def sync_once(client_factory=ModemClient):
             with trust_lock():
                 state.attempted_at = timezone.now()
                 config = get_connection(_locked=True)
+                device_identity = connection_id()
         except ValueError:
             state.state = "error"
             state.detail = "Device connection settings are invalid."
@@ -145,7 +148,7 @@ def sync_once(client_factory=ModemClient):
                 ).update(cleared_at=timezone.now())
                 for slot, pdu in pdus.items():
                     try:
-                        receipt = archive(source, slot, pdu)
+                        receipt = archive(source, slot, pdu, device_identity=device_identity)
                     except ValueError:
                         rejected += 1
                         continue

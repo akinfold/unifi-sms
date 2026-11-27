@@ -6,6 +6,8 @@ from .smtp_forms import StrictBooleanField
 class IntegrationSettingsForm(forms.Form):
     rest_enabled = StrictBooleanField(required=False, label="Enable REST API")
     mcp_enabled = StrictBooleanField(required=False, label="Enable MCP")
+    rest_send_enabled = StrictBooleanField(required=False, label="Allow REST API to send SMS")
+    mcp_send_enabled = StrictBooleanField(required=False, label="Allow MCP to send SMS")
     rest_key = forms.CharField(
         required=False, strip=False, max_length=256,
         widget=forms.PasswordInput(attrs={"autocomplete": "new-password"}),
@@ -49,5 +51,7 @@ class IntegrationSettingsForm(forms.Form):
             )
             if data.get(f"{name}_enabled") and not has_key:
                 self.add_error(f"{name}_key", "Set a key before enabling access, or disable access to revoke it.")
+            if not data.get(f"{name}_enabled"):
+                data[f"{name}_send_enabled"] = False
             data[f"{name}_key_action"] = action
         return data

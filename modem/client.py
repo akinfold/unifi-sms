@@ -1,11 +1,14 @@
 """Serialize modem AT commands through one locked SSH session."""
 
 import csv
+import hashlib
 import re
 import shlex
 import time
 from io import StringIO
 
+from .outbound import OutboundError, OutboundSimChanged, OutboundUnknown, submit_pdu
+from .qmi import open_wms
 from .ssh import SSHCommandError, command_deadline, read_command
 
 
@@ -22,6 +25,10 @@ _READ_HEADER = re.compile(r"^\+CMGR:\s*")
 
 class ModemError(RuntimeError):
     """An SSH transport or modem command failed."""
+
+
+class ATRejected(ModemError):
+    """The modem returned a final error result."""
 
 
 def parse_private_key(value):
@@ -216,8 +223,10 @@ while ! mkdir "$lock" 2>/dev/null; do
     sleep 1
 done
 reader=
+prompt=
 old=
 cleanup() {{
+    if [ -n "$prompt" ]; then printf '\\033' > "$device"; fi
     if [ -n "$reader" ]; then kill "$reader" 2>/dev/null; wait "$reader" 2>/dev/null; fi
     if [ -n "$old" ]; then stty -F "$device" "$old" 2>/dev/null; fi
     rmdir "$lock" 2>/dev/null
@@ -231,7 +240,24 @@ reader=$!
 printf '{_READY}\\n'
 while IFS= read -r command; do
     if [ "$command" = EXIT ]; then break; fi
+    if [ -n "$prompt" ]; then
+        case "$command" in
+            DATA:*)
+                hex=${{command#DATA:}}
+                case "$hex" in ''|*[!0-9A-F]*) exit 1;; esac
+                [ "${{#hex}}" -le 400 ] || exit 1
+                printf '%s\\032' "$hex" > "$device" || exit 1
+                prompt=
+                continue ;;
+            *) printf '\\033' > "$device"; prompt= ;;
+        esac
+    fi
     case "$command" in
+        '+CCID'|'+CRSM=176,12258,0,0,10'|'+CSCA?'|'+CMGS=?') ;;
+        +CMGS=*)
+            number=${{command#*=}}
+            case "$number" in ''|*[!0-9]*) exit 1;; esac
+            prompt=1 ;;
         '+CNUM'|'+CMGF?'|'+CMGF=0'|'+CMGF=1'|'+CPMS="{storage}"'|'+CMGL=4') ;;
         +CMGR=*|+CMGD=*)
             number=${{command#*=}}
@@ -243,11 +269,16 @@ while IFS= read -r command; do
 done
 '''
 
-    def _read_line(self, deadline: float, budget: list[int] | None = None) -> str:
+    def _read_line(
+        self, deadline: float, budget: list[int] | None = None, *, prompt=False
+    ) -> str:
         channel = self._channel
         if channel is None:
             raise ModemError("Modem session is closed")
         while b"\n" not in self._buffer:
+            if prompt and self._buffer.lstrip(b"\r ").startswith(b"> "):
+                self._buffer = self._buffer.lstrip(b"\r ")[2:]
+                return "> "
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise TimeoutError("Modem response timed out")
@@ -284,7 +315,7 @@ done
             if line == "OK":
                 return lines
             if line == "ERROR" or line.startswith(("+CMS ERROR:", "+CME ERROR:")):
-                raise ModemError(line)
+                raise ATRejected(line)
             lines.append(line)
 
     def phone_numbers(self) -> list[str]:
@@ -313,6 +344,119 @@ done
             except (csv.Error, ValueError, IndexError) as exc:
                 raise ModemError("Invalid CNUM response") from exc
         return numbers
+
+    def _sim_identity(self):
+        try:
+            lines = self._request("+CCID")
+        except ATRejected:
+            lines = []
+        for line in lines:
+            match = re.fullmatch(r'(?:\+CCID:\s*)?"?([0-9]{18,22})[Ff]?"?', line)
+            if match:
+                return hashlib.sha256(match[1].encode("ascii")).hexdigest()
+        # EF_ICCID stores two decimal digits per byte, low nibble first.
+        for line in self._request("+CRSM=176,12258,0,0,10"):
+            match = re.fullmatch(r'\+CRSM:\s*144,\s*0,\s*"([0-9A-Fa-f]{20})"', line)
+            if match:
+                digits = "".join(match[1][i : i + 2][::-1] for i in range(0, 20, 2)).rstrip("fF")
+                if re.fullmatch(r"[0-9]{18,20}", digits):
+                    return hashlib.sha256(digits.encode("ascii")).hexdigest()
+        raise OutboundError("Could not identify the SIM.")
+
+    def _sms_center(self):
+        for line in self._request("+CSCA?"):
+            match = re.fullmatch(r'\+CSCA:\s*"(\+?)([0-9]{1,20})",\s*(129|145|161)', line)
+            if match:
+                return match[2], 145 if match[1] else int(match[3])
+        raise OutboundError("Could not read the SMS center address.")
+
+    def outbound_capabilities(self):
+        """Return the SIM fingerprint, candidate profiles, and detected subscriber number."""
+        try:
+            sim = self._sim_identity()
+            try:
+                numbers = self.phone_numbers()
+            except ATRejected:
+                numbers = []
+            phone = next((n for n in numbers if re.fullmatch(r"\+[1-9][0-9]{1,14}", n)), "")
+            profiles = []
+            try:
+                self._request("+CMGS=?")
+                profiles.append("at_pdu")
+            except ATRejected:
+                pass
+            try:
+                self._sms_center()
+                with open_wms(self._ssh, self.timeout, self.device) as wms:
+                    profiles[:0] = ["qmi_ims_off", "qmi_ims_on"]
+                    if not phone:
+                        phone = wms.subscriber_number()
+            except Exception:
+                pass
+            return sim, profiles, phone
+        except Exception:
+            raise OutboundError("Could not inspect the modem and SIM.") from None
+
+    def _check_sim(self, expected_sim):
+        if self._sim_identity() != expected_sim:
+            raise OutboundSimChanged("The SIM has changed. Test the current SIM before sending.")
+
+    def send_sms(self, profile, phone, text, *, expected_sim):
+        """Submit one message after checking the SIM while the modem lock is held."""
+        try:
+            if self._channel is None or not expected_sim:
+                raise OutboundError("A locked modem session and a tested SIM are required.")
+            if profile == "at_pdu":
+                pdu = submit_pdu(phone, text)
+                self._check_sim(expected_sim)
+                return self._send_at(pdu)
+            if profile not in ("qmi_ims_off", "qmi_ims_on"):
+                raise OutboundError("Unsupported sending profile.")
+            pdu = submit_pdu(phone, text, self._sms_center())
+            with open_wms(self._ssh, self.timeout, self.device) as wms:
+                self._check_sim(expected_sim)
+                return wms.send(pdu, profile == "qmi_ims_on")
+        except (OutboundError, OutboundUnknown):
+            raise
+        except Exception:
+            raise OutboundError("Could not prepare the modem for submission.") from None
+
+    def _send_at(self, pdu):
+        deadline = time.monotonic() + self.timeout
+        budget = [0]
+        command = f"+CMGS={len(pdu) - 1 - pdu[0]}"
+        self._channel.settimeout(self.timeout)
+        self._channel.sendall(command + "\n")
+        while self._read_line(deadline, budget) != _BEGIN:
+            pass
+        while True:
+            line = self._read_line(deadline, budget, prompt=True)
+            if line.strip() == ">":
+                break
+            if line == "ERROR" or line.startswith(("+CMS ERROR:", "+CME ERROR:")):
+                raise OutboundError("The modem rejected the SMS prompt.")
+        try:
+            self._channel.settimeout(self.timeout)
+            self._channel.sendall("DATA:" + pdu.hex().upper() + "\n")
+            deadline = time.monotonic() + self.timeout
+            reference = None
+            while True:
+                line = self._read_line(deadline, budget)
+                match = re.fullmatch(r"\+CMGS:\s*([0-9]{1,3})(?:,\s*[0-9A-Fa-f]+)?", line)
+                if match and int(match[1]) <= 255:
+                    reference = match[1]
+                elif line == "OK":
+                    if reference is not None:
+                        return reference
+                    raise OutboundUnknown("The modem returned no submission reference.")
+                elif line == "ERROR" or line.startswith(("+CMS ERROR:", "+CME ERROR:")):
+                    if reference is not None or line in ("+CMS ERROR: 332", "+CMS ERROR: 500"):
+                        raise OutboundUnknown("The modem could not confirm submission.")
+                    raise OutboundError("The modem rejected the message.")
+        except (OutboundError, OutboundUnknown):
+            raise
+        except Exception:
+            raise OutboundUnknown("The modem did not confirm submission.") from None
 
     def device_model(self) -> str:
         if self._ssh is None:

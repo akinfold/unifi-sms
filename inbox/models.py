@@ -160,9 +160,11 @@ class ForwardDelivery(models.Model):
 class IntegrationSettings(models.Model):
     id = models.PositiveSmallIntegerField(primary_key=True, default=1)
     rest_enabled = models.BooleanField(default=False)
+    rest_send_enabled = models.BooleanField(default=False)
     rest_key_hash = models.TextField(blank=True)
     rest_key_suffix = models.CharField(max_length=4, blank=True)
     mcp_enabled = models.BooleanField(default=False)
+    mcp_send_enabled = models.BooleanField(default=False)
     mcp_key_hash = models.TextField(blank=True)
     mcp_key_suffix = models.CharField(max_length=4, blank=True)
 
@@ -194,3 +196,45 @@ class WebhookDelivery(models.Model):
 
     class Meta:
         indexes = [models.Index(fields=["sent_at", "next_attempt_at"], name="webhook_due_idx")]
+
+
+class OutboundSetup(models.Model):
+    id = models.PositiveSmallIntegerField(primary_key=True, default=1)
+    run = models.UUIDField(default=uuid.uuid4, editable=False)
+    connection_id = models.CharField(max_length=64, blank=True)
+    state = models.CharField(max_length=16, default="idle")
+    detail = models.CharField(max_length=250, blank=True)
+    sim = models.CharField(max_length=64, blank=True)
+    detected_number = models.CharField(max_length=16, blank=True)
+    phone = models.CharField(max_length=16, blank=True)
+    profiles = models.JSONField(default=list)
+    attempts = models.JSONField(default=list)
+    deadline = models.DateTimeField(null=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
+class OutboundProfile(models.Model):
+    id = models.PositiveSmallIntegerField(primary_key=True, default=1)
+    revision = models.UUIDField(default=uuid.uuid4, editable=False)
+    connection_id = models.CharField(max_length=64)
+    sim = models.CharField(max_length=64)
+    profile = models.CharField(max_length=32)
+
+
+class OutboundMessage(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    owner = models.CharField(max_length=128)
+    request_key = models.CharField(max_length=128)
+    recipient = models.CharField(max_length=16)
+    text = EncryptedTextField(blank=True)
+    text_digest = models.CharField(max_length=64)
+    profile_revision = models.UUIDField()
+    status = models.CharField(max_length=16, default="queued")
+    detail = models.CharField(max_length=250, blank=True)
+    modem_ref = models.CharField(max_length=64, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["owner", "request_key"], name="outbound_request_unique")]
+        indexes = [models.Index(fields=["status", "created_at"], name="outbound_queue_idx")]

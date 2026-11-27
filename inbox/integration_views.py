@@ -32,6 +32,7 @@ def integrations(request):
     stored = IntegrationSettings.objects.filter(pk=1).first() or IntegrationSettings()
     initial = {
         "rest_enabled": stored.rest_enabled, "mcp_enabled": stored.mcp_enabled,
+        "rest_send_enabled": stored.rest_send_enabled, "mcp_send_enabled": stored.mcp_send_enabled,
         "rest_key_action": "keep", "mcp_key_action": "keep",
     }
     form = IntegrationSettingsForm(
@@ -43,6 +44,7 @@ def integrations(request):
         defaults = {}
         for name in ("rest", "mcp"):
             defaults[f"{name}_enabled"] = data[f"{name}_enabled"]
+            defaults[f"{name}_send_enabled"] = data[f"{name}_send_enabled"]
             action = data[f"{name}_key_action"]
             if action == "replace":
                 key = data[f"{name}_key"]

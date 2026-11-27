@@ -33,3 +33,6 @@ known_hosts*
 .coverage
 htmlcov/
 .pytest_cache/
+
+# Local cross-compiled modem bridge.
+/modem/qmi_bridge/qmi-bridge-mips

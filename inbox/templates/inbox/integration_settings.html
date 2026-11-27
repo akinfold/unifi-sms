@@ -14,6 +14,7 @@
         <legend>REST API</legend>
         <p class="section-help">List, read, create, update and delete archived SMS. Creating a record does not send an SMS or forward it.</p>
         <div class="setting-toggle"><label for="id_rest_enabled">{{ form.rest_enabled }}<span><strong>Enable REST API</strong><small>Disabled by default. The key grants read and write access to all SMS.</small></span></label>{{ form.rest_enabled.errors }}</div>
+        <div class="setting-toggle"><label for="id_rest_send_enabled">{{ form.rest_send_enabled }}<span><strong>Allow sending SMS through REST API</strong><small>Sending requires a verified sending profile.</small></span></label>{{ form.rest_send_enabled.errors }}</div>
         <div class="integration-endpoint"><strong>Endpoint</strong><code>{{ rest_endpoint }}</code><small>Send the key as <code>Authorization: Bearer YOUR_KEY</code>.</small></div>
         <div class="settings-grid">
           <div class="setting-field"><label for="id_rest_key_action">Saved key</label>{{ form.rest_key_action }}<small>{% if rest_has_key %}A key ending in <strong>{{ rest_suffix }}</strong> is saved. Its full value cannot be retrieved.{% else %}No key saved. Enter or generate one below.{% endif %}</small>{{ form.rest_key_action.errors }}</div>
@@ -24,6 +25,7 @@
         <legend>MCP</legend>
         <p class="section-help">Use SMS tools from an MCP client that supports Streamable HTTP and custom Bearer authorization.</p>
         <div class="setting-toggle"><label for="id_mcp_enabled">{{ form.mcp_enabled }}<span><strong>Enable MCP</strong><small>Disabled by default. The key grants read and write access to all SMS through MCP tools.</small></span></label>{{ form.mcp_enabled.errors }}</div>
+        <div class="setting-toggle"><label for="id_mcp_send_enabled">{{ form.mcp_send_enabled }}<span><strong>Allow sending SMS through MCP</strong><small>Sending requires a verified sending profile.</small></span></label>{{ form.mcp_send_enabled.errors }}</div>
         <div class="integration-endpoint"><strong>Endpoint</strong><code>{{ mcp_endpoint }}</code><small>Send the key as <code>Authorization: Bearer YOUR_KEY</code>.</small></div>
         <div class="settings-grid">
           <div class="setting-field"><label for="id_mcp_key_action">Saved key</label>{{ form.mcp_key_action }}<small>{% if mcp_has_key %}A key ending in <strong>{{ mcp_suffix }}</strong> is saved. Its full value cannot be retrieved.{% else %}No key saved. Enter or generate one below.{% endif %}</small>{{ form.mcp_key_action.errors }}</div>

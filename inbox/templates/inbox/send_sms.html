@@ -1,0 +1,112 @@
+{% extends 'inbox/base.html' %}
+{% load static %}
+
+{% block title %}Send SMS · UniFi SMS{% endblock %}
+{% block extra_styles %}
+<link rel="stylesheet" href="{% static 'inbox/outbound.css' %}">
+{% endblock %}
+
+{% block content %}
+<main class="workspace outbound" id="outbound" data-status-url="{% url 'outbound-status' %}" data-action-url="{% url 'outbound-action' %}">
+  {% csrf_token %}
+  <div class="outbound-heading">
+    <h1 id="page-title">Send SMS</h1>
+    <span class="outbound-badge" id="step-label"></span>
+    <button type="button" class="quiet" id="rerun" hidden>Run setup again</button>
+  </div>
+  <p class="outbound-notice" id="connection-error" role="alert" hidden></p>
+
+  <section class="outbound-card intro" data-page="start" hidden>
+    <h2>Set up SMS sending</h2>
+    <p>UniFi SMS will send a test message to the SIM in your LTE device and check that it arrives.</p>
+    <button type="button" class="primary" data-action="open">Set up sending</button>
+  </section>
+
+  <section class="outbound-card" data-page="number" hidden>
+    <h2>Confirm the SIM number</h2>
+    <p>Enter the phone number of the SIM installed in your LTE device.</p>
+    <form id="number-form">
+      <label for="sim-number">SIM phone number</label>
+      <input id="sim-number" type="tel" inputmode="tel" autocomplete="tel" aria-describedby="sim-note" required>
+      <small id="sim-note">Use an international number starting with + and the country code.</small>
+      <p class="outbound-notice">Testing sends up to 3 SMS to this number. Your carrier may charge for them.</p>
+      <div class="outbound-actions">
+        <button class="primary" type="submit">Start testing</button>
+        <button type="button" class="quiet" data-action="cancel">Cancel</button>
+      </div>
+    </form>
+  </section>
+
+  <section class="outbound-card" data-page="testing" hidden>
+    <h2>Test sending profiles</h2>
+    <p>Test recipient <strong class="sim-value"></strong></p>
+    <div class="outbound-progress">
+      <div class="outbound-row">
+        <strong id="profile-count"></strong>
+        <span id="deadline" role="timer"></span>
+      </div>
+      <progress id="progress" max="3" value="0" aria-label="Profiles checked"></progress>
+      <p id="activity" role="status" aria-live="polite"></p>
+    </div>
+    <ol class="outbound-profiles" id="profiles"></ol>
+    <div class="outbound-actions">
+      <button type="button" class="quiet" data-action="cancel">Stop testing</button>
+    </div>
+  </section>
+
+  <section class="outbound-card" data-page="verified" hidden>
+    <div class="outbound-result good">
+      <h2>Test SMS received</h2>
+      <p>UniFi SMS sent a test message to <strong class="sim-value"></strong> and received it back on this device.</p>
+    </div>
+    <dl>
+      <div><dt>Working profile</dt><dd id="winning-profile"></dd></div>
+      <div><dt>Device</dt><dd class="device-name"></dd></div>
+    </dl>
+    <div class="outbound-actions">
+      <button type="button" class="primary" data-action="finish">Finish setup</button>
+      <button type="button" class="quiet" data-action="cancel">Cancel</button>
+    </div>
+  </section>
+
+  <section class="outbound-card" data-page="failed" hidden>
+    <div class="outbound-result bad">
+      <h2>No profile verified</h2>
+      <p id="failure-detail">Check the SIM number and try again.</p>
+    </div>
+    <ol class="outbound-profiles" id="failed-profiles"></ol>
+    <div class="outbound-actions">
+      <button type="button" class="primary" data-action="open">Try setup again</button>
+      <button type="button" class="quiet" data-action="close">Close</button>
+    </div>
+  </section>
+
+  <section data-page="compose" hidden>
+    <div class="outbound-device">
+      <strong class="device-name"></strong>
+      <span id="saved-profile"></span>
+    </div>
+    <form class="outbound-card" id="send-form">
+      <h2>New message</h2>
+      <label for="recipient">Recipient</label>
+      <input id="recipient" type="tel" inputmode="tel" autocomplete="tel" placeholder="+1 202 555 0100" aria-describedby="recipient-note" required>
+      <small id="recipient-note">Include the country code.</small>
+      <label for="message">Message</label>
+      <textarea id="message" rows="6" required></textarea>
+      <div id="send-result" class="outbound-result" role="status" aria-live="polite" hidden>
+        <strong id="send-title"></strong>
+        <p id="send-detail"></p>
+      </div>
+      <div class="outbound-actions">
+        <button class="primary" id="send-button" type="submit">Send SMS</button>
+        <button class="quiet" id="new-message" type="button" hidden>New message</button>
+      </div>
+    </form>
+  </section>
+  <noscript><p class="outbound-notice">JavaScript is required to set up and send SMS.</p></noscript>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script src="{% static 'inbox/outbound.js' %}" defer></script>
+{% endblock %}
