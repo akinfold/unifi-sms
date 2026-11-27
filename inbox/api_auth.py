@@ -48,8 +48,10 @@ def authenticate_request(request, kind):
         ], RATE_SECONDS)):
             return _denied(429)
         if check_api_key(supplied, encoded):
+            key_hash = make_api_key_hash(supplied) if legacy else encoded
             if legacy:
-                IntegrationSettings.objects.filter(pk=config.pk, **{field: encoded}).update(**{field: make_api_key_hash(supplied)})
+                IntegrationSettings.objects.filter(pk=config.pk, **{field: encoded}).update(**{field: key_hash})
+            request.integration_key_hash = key_hash
             return None
     admitted = reserve([(failure_key, FAILURE_LIMIT)], RATE_SECONDS)
     return _denied(401 if admitted else 429)

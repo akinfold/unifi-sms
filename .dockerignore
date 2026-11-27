@@ -33,3 +33,5 @@ docker-compose.override*.yml
 .coverage
 htmlcov/
 .pytest_cache/
+
+modem/qmi_bridge/qmi-bridge-mips

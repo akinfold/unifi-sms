@@ -6,9 +6,10 @@ Use REST API, MCP, or outgoing webhooks to work with SMS outside the inbox:
 | --- | --- | --- |
 | Search messages from a script, export records, or update their read state. | [REST API](#use-the-rest-api) | A JSON response containing archived SMS. |
 | Give an MCP client or assistant tools to search and manage the archive. | [MCP](#connect-an-mcp-client) | Five SMS tools and a search result from `list_sms`. |
+| Send a cellular SMS through a configured LTE modem. | [Outbound SMS](#send-a-cellular-sms) | A send request ID and modem submission status. |
 | Start an external workflow when a new SMS arrives. | [Outgoing webhook](#forward-new-sms-to-a-webhook) | An `sms.received` event at your receiver and **Webhook sent** in the inbox. |
 
-These integrations are available starting with version 0.1.5. Each is disabled by default and can be enabled independently in the web interface after creating an administrator. REST and MCP manage archive records; they do not send cellular SMS.
+REST, MCP, and webhooks are available starting with version 0.1.5. Each is disabled by default and can be enabled independently in the web interface after creating an administrator. Outbound SMS uses separate endpoints and permissions.
 
 ## Enable REST API or MCP
 
@@ -21,6 +22,51 @@ Each REST or MCP key grants read, write, and delete access to the entire SMS arc
 5. Follow the [REST](#use-the-rest-api) or [MCP](#connect-an-mcp-client) check below, using the endpoint shown on the settings page and the matching saved key.
 
 Use different REST and MCP keys so you can grant and revoke access separately. Each integration accepts only its own saved key. Both use `Authorization: Bearer YOUR_KEY` on every request; neither provides an OAuth sign-in flow. See [key management and authentication](#key-management-and-authentication) for rotation, revocation, and error responses.
+
+## Send a cellular SMS
+
+Open **Send SMS → Set up sending** and confirm the phone number of the SIM in the LTE device. The wizard tests up to three compatible profiles in sequence. It waits up to 90 seconds per submitted test for the SMS to return to the same SIM. Your carrier must support sending SMS to that number from itself and may charge for the test messages.
+
+Select **Finish setup** after the test SMS arrives. The selected profile applies to that device and SIM. Use **Run setup again** to test profiles again. If the SIM changes, sending is disabled when the modem detects the change. Each send supports one segment, up to 160 GSM-7 characters or 70 UTF-16 code units. GSM-7 extension characters count as two.
+
+To send from an integration, enable **Allow sending SMS through REST API** or **Allow sending SMS through MCP** in **Settings → API and MCP**. Each permission is separate and off by default. A key with this permission can send to any valid international number. The existing archive endpoints and tools still operate on stored records.
+
+### Queue a send over REST
+
+After [setting your base URL and REST key](#use-the-rest-api), send `POST /api/v1/outbound/` with a unique `Idempotency-Key` header. Use a key of 1–128 printable ASCII characters without spaces. Reuse that key and the same payload if you retry the HTTP request.
+
+```sh
+curl --fail-with-body "$SMS_URL/api/v1/outbound/" \
+  -H "Authorization: Bearer $SMS_API_KEY" \
+  -H 'Content-Type: application/json' \
+  -H 'Idempotency-Key: example-send-42' \
+  --data '{"to":"+12025550100","text":"Example SMS"}'
+```
+
+Replace the example number with the intended recipient's international number. The response is HTTP 202 with the send request `id`, `status`, `detail`, and a `Location` header. Poll that path with the same REST key. Reusing the same key with a different recipient or text returns HTTP 409.
+
+### Queue a send over MCP
+
+After setup and MCP opt-in, the MCP server lists `send_sms` and `get_sms_send_status`. Call `send_sms` with `to`, `text`, and `idempotency_key`. Pass the returned `id` to `get_sms_send_status`.
+
+### Interpret the status
+
+| Status | Meaning |
+| --- | --- |
+| `queued` | The worker is waiting to submit the message. |
+| `sending` | The worker is submitting the message. |
+| `accepted` | The modem accepted submission. Recipient delivery is unverified. |
+| `failed` | Submission was rejected or stopped before sending. Check `detail` before making a new request. |
+| `unknown` | Submission may have succeeded. Check with the recipient before creating a new send request. |
+
+A send request uses the profile and permissions in effect when it was queued. If they change before submission, the worker rejects the request. Requests that spend five minutes in the queue expire. The worker makes at most one submission per request. A network retry with the same idempotency key retrieves the existing request.
+
+If you run UniFi SMS from source and need QMI, build the optional bridge with Go. The Docker image includes it. AT sending is available wherever the modem supports it.
+
+```sh
+CGO_ENABLED=0 GOOS=linux GOARCH=mips GOMIPS=softfloat go build -trimpath \
+  -ldflags='-s -w' -o modem/qmi_bridge/qmi-bridge-mips modem/qmi_bridge/main.go
+```
 
 ## Use the REST API
 

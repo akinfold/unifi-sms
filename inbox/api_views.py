@@ -1,7 +1,9 @@
 from django.http import HttpResponse, HttpResponseNotAllowed, JsonResponse
+from django.urls import reverse
 
 from .api_auth import authenticate_request, csrf_exempt_api
 from .json_input import load_json
+from .outbound import enqueue, get_job, integration_owner
 from .sms_service import ApiError, create_message, delete_message, get_message, list_messages, update_message
 
 MAX_BODY_BYTES = 131072
@@ -81,3 +83,24 @@ def message(request, pk):
         return JsonResponse(update_message(pk, data, partial=request.method == "PATCH"))
 
     return _run(request, "rest", execute, ("GET", "PUT", "PATCH", "DELETE"))
+
+
+@csrf_exempt_api
+def outbound_collection(request):
+    def execute():
+        job = enqueue(
+            integration_owner(request, "rest"), _json_body(request), request.headers.get("Idempotency-Key")
+        )
+        response = JsonResponse(job, status=202)
+        response["Location"] = reverse("rest-outbound-message", kwargs={"pk": job["id"]})
+        return response
+
+    return _run(request, "rest", execute, ("POST",))
+
+
+@csrf_exempt_api
+def outbound_message(request, pk):
+    def execute():
+        return JsonResponse(get_job(integration_owner(request, "rest"), pk))
+
+    return _run(request, "rest", execute, ("GET",))

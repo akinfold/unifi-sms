@@ -10,6 +10,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from modem.client import ModemClient
+from modem.tests.test_outbound import ICCID, PDU, PHONE, SIM
 from modem.tests.test_pdu import make_pdu, septets
 
 
@@ -67,6 +68,7 @@ class SerialSessionTests(unittest.TestCase):
         self.addCleanup(os.close, slave)
         stop = threading.Event()
         commands = []
+        submitted = []
         pdu = make_pdu(septets([72, 105]), udl=2)
         slots = {0: pdu}
 
@@ -76,11 +78,19 @@ class SerialSessionTests(unittest.TestCase):
                 if not select.select([master], [], [], 0.1)[0]:
                     continue
                 pending += os.read(master, 4096)
+                if b"\x1a" in pending:
+                    body, pending = pending.split(b"\x1a", 1)
+                    submitted.append(body.decode())
+                    os.write(master, b"\r\n+CMGS: 18\r\nOK\r\n")
                 while b"\r" in pending:
                     command, pending = pending.split(b"\r", 1)
                     command = command.decode().strip()
                     commands.append(command)
+                    if command == "AT+CMGS=18":
+                        os.write(master, b"\r\n> ")
+                        continue
                     responses = {
+                        "AT+CCID": f"+CCID: {ICCID}",
                         "AT+CNUM": '+CNUM: "","+15550102001",145',
                         "AT+CMGF?": "+CMGF: 1",
                         "AT+CMGL=4": f"+CMGL: 0,1,,15\r\n{pdu}",
@@ -111,10 +121,12 @@ class SerialSessionTests(unittest.TestCase):
                         self.assertEqual(client.phone_numbers(), ["+15550102001"])
                         self.assertEqual(client.list_pdus(), {0: pdu})
                         self.assertEqual(client.read_pdu(0), pdu)
+                        self.assertEqual(client.send_sms("at_pdu", PHONE, "hello", expected_sim=SIM), "18")
                         client.delete(0)
                         self.assertTrue(lock.is_dir())
                 self.assertFalse(lock.exists())
                 self.assertFalse(slots)
+                self.assertEqual(submitted, [PDU])
                 self.assertEqual(commands[-1], "AT+CMGF=1")
                 self.assertEqual(channel.process.returncode, 0)
         finally:

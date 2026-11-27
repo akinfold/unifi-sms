@@ -1,3 +1,8 @@
+FROM golang:1.26-alpine@sha256:ecb67f987aa1a57794c91d19ade7ae0209f2f0f5496aaef9e6ae85ddf92d02ab AS modem-bridge
+WORKDIR /build
+COPY modem/qmi_bridge/main.go .
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=mips GOMIPS=softfloat go build -trimpath -ldflags="-s -w" -o /qmi-bridge-mips main.go
+
 FROM python:3.14-slim@sha256:35caba83af2fe6da9a5d922f9b0156f21d1246a48278c58a08bd253303ba42e8
 
 LABEL org.opencontainers.image.source="https://github.com/akinfold/unifi-sms" \
@@ -8,6 +13,7 @@ WORKDIR /app
 COPY requirements-runtime.lock.txt .
 RUN pip install --no-cache-dir --require-hashes --only-binary=:all: -r requirements-runtime.lock.txt && useradd --uid 10001 --create-home sms && mkdir /data && chown sms:sms /data
 COPY --chown=sms:sms . .
+COPY --from=modem-bridge /qmi-bridge-mips /app/modem/qmi_bridge/qmi-bridge-mips
 RUN DATA_DIR=/tmp/build-data python manage.py collectstatic --noinput && rm -rf /tmp/build-data
 USER sms
 VOLUME ["/data"]

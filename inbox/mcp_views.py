@@ -8,6 +8,7 @@ from django.utils.http import is_same_domain
 
 from .api_auth import authenticate_request
 from .json_input import load_json
+from .outbound import active_profile, enqueue, get_job, integration_allowed, integration_owner
 from .sms_service import ApiError, create_message, delete_message, get_message, list_messages, update_message
 
 SUPPORTED_VERSIONS = ("2025-11-25", "2025-06-18", "2025-03-26")
@@ -78,6 +79,36 @@ TOOLS = [
 ]
 
 
+OUTBOUND_TOOLS = [
+    {
+        "name": "send_sms",
+        "description": "Queue one real SMS through the configured LTE modem. Reuse the idempotency key for the same send request.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "to": {"type": "string", "pattern": r"^\+[1-9][0-9]{1,14}$"},
+                "text": {"type": "string", "minLength": 1, "maxLength": 160},
+                "idempotency_key": {"type": "string", "minLength": 1, "maxLength": 128},
+            },
+            "required": ["to", "text", "idempotency_key"],
+            "additionalProperties": False,
+        },
+        "annotations": {"readOnlyHint": False, "destructiveHint": True, "idempotentHint": True, "openWorldHint": True},
+    },
+    {
+        "name": "get_sms_send_status",
+        "description": "Get the status of an outbound SMS by its send request ID.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"id": {"type": "string", "format": "uuid"}},
+            "required": ["id"],
+            "additionalProperties": False,
+        },
+        "annotations": {"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
+    },
+]
+
+
 def _same_origin(value, request):
     try:
         parsed = urlsplit(value)
@@ -133,14 +164,23 @@ def _tool_result(result, is_error=False):
     }
 
 
-def _call_tool(name, arguments):
+def _call_tool(name, arguments, owner):
     if not isinstance(arguments, dict):
         raise ValueError("arguments must be an object")
-    allowed = {tool["name"] for tool in TOOLS}
+    tools = TOOLS + OUTBOUND_TOOLS if integration_allowed(owner) else TOOLS
+    allowed = {tool["name"] for tool in tools}
     if name not in allowed:
         return _tool_result({"error": "Unknown tool."}, True)
     try:
-        if name == "list_sms":
+        if name == "send_sms":
+            payload = dict(arguments)
+            request_key = payload.pop("idempotency_key", None)
+            result = enqueue(owner, payload, request_key)
+        elif name == "get_sms_send_status":
+            if set(arguments) != {"id"} or not isinstance(arguments["id"], str):
+                raise ValueError("id must be a send request UUID")
+            result = get_job(owner, arguments["id"])
+        elif name == "list_sms":
             unexpected = set(arguments) - {"page", "page_size", "q", "read"}
             if unexpected:
                 raise ValueError("unsupported arguments")
@@ -190,7 +230,7 @@ def _is_rpc_response(message):
     return has_result or has_error
 
 
-def _dispatch(message):
+def _dispatch(message, owner):
     try:
         params = _validate_rpc(message)
     except ValueError:
@@ -219,12 +259,13 @@ def _dispatch(message):
     if method == "ping":
         return {"jsonrpc": "2.0", "id": request_id, "result": {}}
     if method == "tools/list":
-        return {"jsonrpc": "2.0", "id": request_id, "result": {"tools": TOOLS}}
+        tools = TOOLS + OUTBOUND_TOOLS if integration_allowed(owner) and active_profile() else TOOLS
+        return {"jsonrpc": "2.0", "id": request_id, "result": {"tools": tools}}
     if method == "tools/call":
         name, arguments = params.get("name"), params.get("arguments", {})
         if not isinstance(name, str) or not isinstance(arguments, dict):
             return _rpc_error(request_id, -32602, "Invalid params")
-        return {"jsonrpc": "2.0", "id": request_id, "result": _call_tool(name, arguments)}
+        return {"jsonrpc": "2.0", "id": request_id, "result": _call_tool(name, arguments, owner)}
     if method.startswith("notifications/"):
         return None
     return _rpc_error(request_id, -32601, "Method not found")
@@ -257,7 +298,7 @@ def endpoint(request):
         return _response(_rpc_error(None, -32600, "Invalid Request"), 400)
     if _is_rpc_response(message):
         return HttpResponse(status=202)
-    result = _dispatch(message)
+    result = _dispatch(message, integration_owner(request, "mcp"))
     if result is None:
         return HttpResponse(status=202)
     return _response(result)
