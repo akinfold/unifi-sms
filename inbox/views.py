@@ -264,6 +264,8 @@ def delete_messages(request):
 @require_GET
 @admin_required
 def status(request):
+    from .balance import summary
+
     state = SyncStatus.objects.filter(pk=1).first() or SyncStatus(detail="Waiting for the importer.")
     queued_at = queued_import_at(state.attempted_at)
     last_activity = queued_at or state.attempted_at
@@ -282,6 +284,7 @@ def status(request):
             "pending": Receipt.objects.filter(cleared_at__isnull=True).count(),
             "phone": phone_status(),
             "device": device_status(),
+            "balance": summary(),
         }
     )
 

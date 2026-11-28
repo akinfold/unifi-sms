@@ -33,6 +33,7 @@ You need a NAS or another Docker host that supports **Linux AMD64 or ARM64 conta
 - **Use SMS from scripts through REST API.** Search, read, create, update, and delete archive records with a dedicated access key.
 - **Connect an MCP client.** Give a compatible client access to the archive through Streamable HTTP and a separate Bearer key.
 - **Trigger workflows with webhooks.** Send a JSON event for each new SMS to your application or automation service, with an optional secret header, retries, and visible delivery status.
+- **Monitor your SIM balance.** Verify a carrier balance request, check it on a schedule, and receive low-balance alerts by email or SMS. See [SIM balance setup](docs/behavior.md#sim-balance).
 - **Keep device storage available.** The LTE Pro has limited space for SMS. UniFi SMS saves each segment to the archive before deleting its device copy to make room for new messages.
 
 One container runs the web app and importer; one persistent volume holds the archive and settings. The importer checks for messages about once a minute. Messages it cannot safely decode, save, or verify remain on the device with a warning. See [SMS import and deletion](docs/behavior.md#sms-import-and-deletion) for details.

@@ -1,0 +1,153 @@
+{% extends 'inbox/base.html' %}
+{% load static %}
+{% block title %}SIM balance · UniFi SMS{% endblock %}
+{% block extra_styles %}<link rel="stylesheet" href="{% static 'inbox/balance.css' %}">{% endblock %}
+{% block content %}
+<main class="workspace balance" id="balance-app" data-status-url="{% url 'balance-status' %}" data-action-url="{% url 'balance-action' %}">
+  <header class="page-heading"><div><h1>SIM balance</h1><p class="muted">Check the balance reported by your carrier and set up low-balance alerts.</p></div></header>
+  <ol class="balance-steps" id="balance-steps" aria-label="Setup progress" hidden>
+    <li>Carrier</li><li>Test</li><li>Result</li><li>Schedule and alerts</li>
+  </ol>
+  <div id="balance-error" class="alert" role="alert" hidden></div>
+  <section class="balance-card" data-screen="loading"><p>Loading balance settings…</p></section>
+  <section class="balance-card" data-screen="inactive" hidden>
+    <h2>Balance monitoring is off</h2>
+    <p id="inactive-detail" class="muted"></p>
+    <button type="button" class="primary" data-action="prepare">Set up monitoring</button>
+  </section>
+  <section data-screen="overview" hidden>
+    <div class="balance-card">
+      <div class="balance-row balance-between">
+        <div><h2>Current balance</h2><div class="balance-amount" id="summary-amount"></div></div>
+        <button type="button" class="primary" data-action="check">Check now</button>
+      </div>
+      <p id="summary-low" class="balance-notice" hidden>Balance is at or below your alert threshold.</p>
+      <p id="summary-detail" class="muted" role="status"></p>
+      <dl class="balance-grid">
+        <div><dt>Last successful check</dt><dd id="summary-checked"></dd></div>
+        <div><dt>Next check</dt><dd id="summary-next"></dd><small id="summary-interval"></small></div>
+        <div><dt>Carrier profile</dt><dd id="summary-profile"></dd><small id="summary-method"></small></div>
+      </dl>
+    </div>
+    <div class="balance-card">
+      <div class="balance-row balance-between">
+        <div><h2>Low-balance alerts</h2><p id="summary-threshold" class="muted"></p></div>
+        <button type="button" class="quiet" id="edit-settings">Edit schedule and alerts</button>
+      </div>
+      <dl class="balance-grid">
+        <div><dt>Email</dt><dd id="summary-email"></dd><small id="summary-email-state"></small></div>
+        <div><dt>SMS</dt><dd id="summary-phone"></dd><small id="summary-sms-state"></small></div>
+      </dl>
+    </div>
+    <div class="balance-row">
+      <button type="button" class="quiet" data-action="prepare">Change profile</button>
+      <button type="button" class="danger" id="disable">Disable monitoring</button>
+    </div>
+  </section>
+  <section class="balance-card" data-screen="carrier" hidden>
+    <h2>Choose your carrier and plan</h2>
+    <p class="muted" id="carrier-detail"></p>
+    <form id="carrier-form">
+      <div class="balance-grid">
+        <label>Carrier and plan<select id="carrier" required></select></label>
+        <label id="auto-sender-field" hidden>Expected SMS sender
+          <input id="auto-sender" maxlength="32" aria-describedby="auto-sender-help">
+          <small id="auto-sender-help" class="muted"></small>
+        </label>
+      </div>
+      <div class="balance-actions">
+        <button class="primary">Find a profile</button>
+        <button type="button" class="quiet" data-manual>Set up manually</button>
+        <button type="button" class="quiet" data-action="cancel">Cancel</button>
+      </div>
+    </form>
+  </section>
+  <section class="balance-card" data-screen="testing" hidden>
+    <h2 id="test-heading">Testing balance requests</h2>
+    <p id="test-detail" role="status"></p>
+    <p id="countdown" role="timer" aria-live="off" hidden></p>
+    <progress id="progress" max="1" value="0" aria-label="Profiles tested"></progress>
+    <ul id="attempts" class="balance-attempts"></ul>
+    <div class="balance-actions">
+      <button type="button" class="primary" data-action="prepare" id="retry-setup" hidden>Start again</button>
+      <button type="button" class="quiet" data-manual id="test-manual" hidden>Set up manually</button>
+      <button type="button" class="quiet" data-action="cancel" id="test-cancel">Stop testing</button>
+    </div>
+  </section>
+  <section class="balance-card" data-screen="manual" hidden>
+    <h2>Manual profile</h2>
+    <p class="muted">Enter the balance request published by your carrier for this plan.</p>
+    <form id="manual-form">
+      <div class="balance-grid">
+        <label>Request method<select id="transport"><option value="ussd">USSD</option><option value="sms">SMS</option><option value="code">Service code with SMS reply</option></select></label>
+        <label id="code-field">Carrier code<input id="code" maxlength="32" autocomplete="off"></label>
+        <label id="destination-field" hidden>Send to<input id="destination" maxlength="16" inputmode="tel" autocomplete="off"></label>
+        <label id="text-field" hidden>SMS text<input id="text" maxlength="140"><small class="muted">Leave empty if your carrier asks for a blank SMS.</small></label>
+        <label id="sender-field" hidden>Expected SMS sender<input id="sender" maxlength="32" autocomplete="off"><small class="muted">Enter the number or sender name as it appears in received SMS.</small></label>
+        <label>Currency<input id="currency" maxlength="3" placeholder="Optional, e.g. EUR" autocomplete="off"></label>
+        <label>Text before the amount<input id="marker" maxlength="60" placeholder="Optional"></label>
+      </div>
+      <div class="balance-actions">
+        <button class="primary">Test request</button>
+        <button type="button" class="quiet" id="manual-back">Back</button>
+        <button type="button" class="quiet" data-action="cancel">Cancel</button>
+      </div>
+    </form>
+  </section>
+  <section class="balance-card" data-screen="manual_result" hidden>
+    <h2>Identify the balance in the carrier reply</h2>
+    <pre id="reply" class="balance-reply"></pre>
+    <form id="recognize-form">
+      <div class="balance-grid">
+        <label>Currency<input id="recognize-currency" maxlength="3" placeholder="EUR" required></label>
+        <label>Text before the amount<input id="recognize-marker" maxlength="60" placeholder="Optional"></label>
+      </div>
+      <div class="balance-actions">
+        <button class="primary">Recognize balance</button>
+        <button type="button" class="quiet" data-manual>Edit request</button>
+        <button type="button" class="quiet" data-action="cancel">Cancel</button>
+      </div>
+    </form>
+  </section>
+  <section class="balance-card" data-screen="verified" hidden>
+    <h2>Balance verified</h2>
+    <p id="verified-method" class="muted"></p>
+    <div class="balance-amount" id="verified-amount"></div>
+    <div class="balance-actions">
+      <button class="primary" type="button" id="use-profile">Continue to schedule and alerts</button>
+      <button class="quiet" type="button" data-action="cancel">Cancel</button>
+    </div>
+  </section>
+  <section class="balance-card" data-screen="settings" hidden>
+    <h2>Schedule and alerts</h2>
+    <form id="settings-form">
+      <div class="balance-grid">
+        <label>Check frequency<select id="interval"><option value="">Method default</option><option value="1">Every hour</option><option value="6">Every 6 hours</option><option value="24">Every 24 hours</option><option value="168">Every week</option><option value="custom">Custom interval</option></select></label>
+        <label id="custom-interval-field" hidden>Interval in hours<input id="custom-interval" type="number" min="1" max="168" step="1"></label>
+        <label><span id="threshold-label">Alert threshold</span><input id="threshold" type="number" min="0" step="0.0001" placeholder="Optional"></label>
+      </div>
+      <fieldset class="balance-channels">
+        <legend>Alert channels</legend>
+        <div class="balance-grid">
+          <div>
+            <label class="balance-checkbox"><input type="checkbox" id="email-enabled"> Email</label>
+            <label id="email-field" hidden>Email address<input id="email" type="email" maxlength="254"></label>
+            <small id="email-guidance" class="muted" hidden>Configure an SMTP server in Email forwarding to use email alerts.</small>
+          </div>
+          <div>
+            <label class="balance-checkbox"><input type="checkbox" id="sms-enabled"> SMS</label>
+            <label id="phone-field" hidden>Destination phone number<input id="phone" type="tel" maxlength="16" placeholder="+12025550123"></label>
+            <small id="sms-guidance" class="muted" hidden>Complete Send SMS setup for this SIM to use SMS alerts.</small>
+          </div>
+        </div>
+      </fieldset>
+      <div class="balance-actions">
+        <button class="primary" id="save-settings">Enable monitoring</button>
+        <button type="button" class="quiet" id="cancel-settings">Back</button>
+      </div>
+    </form>
+  </section>
+</main>
+<form id="csrf" hidden>{% csrf_token %}</form>
+{% endblock %}
+{% block scripts %}<script src="{% static 'inbox/balance.js' %}" defer></script>{% endblock %}

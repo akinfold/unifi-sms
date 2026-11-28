@@ -261,6 +261,15 @@ async function syncStatus() {
     renderDeviceImage(data.device.model);
     byId("model-detail").textContent = data.device.error ? (data.device.model ? "Update failed · saved model" : "Could not read device model") : "Model reported by device";
     renderPhone(data.phone);
+    const balance = data.balance;
+    byId("home-balance").hidden = !balance || !balance.enabled;
+    if (balance && balance.enabled) {
+      byId("home-balance-amount").textContent = balance.amount == null ? "Not available" : `${balance.amount} ${balance.currency || ""}`;
+      byId("home-balance").classList.toggle("low", balance.low);
+      byId("home-balance-detail").textContent = [
+        balance.low ? "Low balance" : "", balance.stale ? "Last confirmed balance" : "",
+      ].filter(Boolean).join(" · ");
+    }
     if (wasImporting && !importInProgress() && canRefreshInbox()) await load();
   } catch (error) {
     if (sequence === statusRequestNumber) showError(error);

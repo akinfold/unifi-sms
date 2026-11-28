@@ -28,6 +28,16 @@ Select **Update from device** to refresh the model and SIM number, for example a
 
 If a check fails, the inbox keeps the last saved number and labels it as outdated. A successful empty response clears the previous number. Changing the configured device address or SSH port uses a separate cached result. Reading the number does not change the number stored on the SIM. Model checks run independently of SIM number checks. If the model cannot be read, the inbox keeps its saved value and shows that the update failed.
 
+## SIM balance
+
+Open **SIM balance → Set up monitoring** and confirm your carrier and plan. A network prefix from the SIM can suggest an operator. For an unlisted plan, choose **Set up manually** and enter the balance request published by your carrier. You can test direct USSD, an SMS request, or a service code that returns a balance by SMS. For the SMS methods, enter the reply sender exactly as it appears in received messages. Availability depends on the plan, network, and modem. Carrier request charges may apply.
+
+The wizard tries one request at a time. SMS tests show the remaining wait time. If the app cannot identify an amount, manual setup lets you specify the currency and the text that precedes it. After the wizard verifies a result, choose a schedule and select **Enable monitoring**. The default interval is six hours for direct USSD and 24 hours for requests with an SMS reply.
+
+The inbox device status shows the last confirmed balance while monitoring is enabled. A failed check leaves this value visible and marks it as outdated. Use **Check now** for an on-demand update or **Change profile** to verify another request. A check against a different SIM suspends monitoring until setup is completed again. Recognized carrier SMS stay in the archive without entering ordinary email and webhook forwarding queues.
+
+Set a threshold and one or both alert channels under **Edit schedule and alerts**. Email uses the saved SMTP server. SMS alerts require a verified Send SMS profile for the same SIM. Each channel attempts one notification when a confirmed balance reaches or falls below the threshold, and can notify again after the balance recovers and drops back. The balance page shows the outcome for each channel.
+
 ## Email delivery
 
 Configure forwarding under **Settings → Email forwarding**. **Replace password** enters a new password; **Remove login details** clears both username and password when saved. Leave both credentials empty only for a server that accepts mail without authentication.
