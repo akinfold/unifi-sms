@@ -1,8 +1,10 @@
 import struct
 import unittest
+from contextlib import nullcontext
+from unittest.mock import Mock, patch
 
 from modem.outbound import OutboundError, OutboundUnknown
-from modem.qmi import WMS
+from modem.qmi import WMS, open_wms
 
 
 class Proxy:
@@ -43,6 +45,23 @@ OPEN = [
 
 
 class QMITests(unittest.TestCase):
+    def test_bridge_startup_has_its_own_default_timeout(self):
+        ssh = Mock()
+        channel = ssh.get_transport().open_session.return_value
+        with (
+            patch("modem.qmi._BRIDGE") as bridge,
+            patch("modem.qmi.command_deadline", return_value=nullcontext(135)) as deadline,
+            patch("modem.qmi.time.monotonic", return_value=100),
+            patch("modem.qmi.WMS") as wms,
+        ):
+            bridge.read_bytes.return_value = b"bridge"
+            with open_wms(ssh, 15, "/dev/ttyUSB2"):
+                deadline.assert_called_once_with(ssh, 35)
+                ssh.get_transport().open_session.assert_called_once_with(timeout=35)
+                channel.settimeout.assert_called_once_with(35)
+                channel.sendall.assert_called_once_with(b"bridge")
+                wms.assert_called_once_with(channel, 15)
+
     def test_protocol_frames_allocation_registration_submission_and_release(self):
         channel = Proxy(OPEN + [
             response(5, 7, 0, 1, "", flags=4)

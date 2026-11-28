@@ -149,7 +149,7 @@ class WMS:
 
 
 @contextlib.contextmanager
-def open_wms(ssh, timeout, device):
+def open_wms(ssh, timeout, device, *, startup_timeout=35):
     # Upload the helper inside a private directory. The shell removes it on exit.
     binary = _BRIDGE.read_bytes()
     if not 0 < len(binary) <= 8 * 1024 * 1024:
@@ -179,7 +179,7 @@ chmod 700 "$tmp/bridge" || exit 1
     channel = None
     wms = None
     try:
-        with command_deadline(ssh, timeout) as deadline:
+        with command_deadline(ssh, startup_timeout) as deadline:
             channel = ssh.get_transport().open_session(timeout=max(0.001, deadline - time.monotonic()))
             channel.settimeout(max(0.001, deadline - time.monotonic()))
             channel.exec_command(script)
