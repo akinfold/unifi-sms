@@ -6,7 +6,12 @@
     <div class="device-property"><span class="device-label">Device address</span><strong id="device-address">Checking…</strong><span class="device-caption">Configured SSH host</span></div>
     <div class="device-property"><span class="device-label">SIM phone number</span><strong id="phone-number">Checking…</strong><span class="device-caption">Read from the SIM</span></div>
     <div class="device-update"><button type="button" id="refresh-phone" class="quiet" aria-describedby="phone-status" disabled>Update from device</button><small id="phone-time"></small></div>
-    <div class="device-status" id="phone-status" role="status" aria-live="polite"><span id="phone-detail">Reading device information</span></div>
+    <div class="device-status-row">
+      <div class="device-status" id="phone-status" role="status"><span id="phone-detail">Reading device information</span></div>
+      <a href="{% url 'balance' %}" id="home-balance" class="device-balance" hidden>
+        <span>SIM balance</span><strong id="home-balance-amount"></strong><small id="home-balance-detail"></small>
+      </a>
+    </div>
   </section>
   <div id="alert" class="alert" role="alert" hidden></div>
   <section class="mailbox" aria-label="SMS archive">

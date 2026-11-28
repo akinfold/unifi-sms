@@ -18,6 +18,7 @@ class Message(models.Model):
     imported_at = models.DateTimeField(auto_now_add=True)
     text = models.TextField()
     read_at = models.DateTimeField(null=True)
+    is_balance_reply = models.BooleanField(default=False)
     concat_ref = models.CharField(max_length=32, null=True)
     total_parts = models.PositiveSmallIntegerField(default=1)
     saved_parts = models.PositiveSmallIntegerField(default=1)
@@ -238,3 +239,44 @@ class OutboundMessage(models.Model):
     class Meta:
         constraints = [models.UniqueConstraint(fields=["owner", "request_key"], name="outbound_request_unique")]
         indexes = [models.Index(fields=["status", "created_at"], name="outbound_queue_idx")]
+
+
+class BalanceMonitor(models.Model):
+    id = models.PositiveSmallIntegerField(primary_key=True, default=1)
+    revision = models.UUIDField(default=uuid.uuid4, editable=False)
+    enabled = models.BooleanField(default=False)
+    connection_id = models.CharField(max_length=64, blank=True)
+    sim = models.CharField(max_length=64, blank=True)
+    profile = models.JSONField(default=dict)
+    interval_hours = models.PositiveSmallIntegerField(null=True)
+    threshold = models.DecimalField(max_digits=16, decimal_places=4, null=True)
+    email = models.EmailField(blank=True)
+    phone = models.CharField(max_length=16, blank=True)
+    amount = models.DecimalField(max_digits=16, decimal_places=4, null=True)
+    checked_at = models.DateTimeField(null=True)
+    next_check_at = models.DateTimeField(null=True)
+    state = models.CharField(max_length=16, default="idle")
+    detail = models.CharField(max_length=250, blank=True)
+    low = models.BooleanField(default=False)
+    alerts = models.JSONField(default=dict)
+
+
+class BalanceRun(models.Model):
+    key = models.CharField(max_length=8, primary_key=True)
+    revision = models.UUIDField(default=uuid.uuid4, editable=False)
+    connection_id = models.CharField(max_length=64, blank=True)
+    sim = models.CharField(max_length=64, blank=True)
+    network = models.CharField(max_length=6, blank=True)
+    state = models.CharField(max_length=16, default="idle")
+    detail = models.CharField(max_length=250, blank=True)
+    profiles = models.JSONField(default=list)
+    attempts = models.JSONField(default=list)
+    manual = models.BooleanField(default=False)
+    started_at = models.DateTimeField(null=True)
+    deadline = models.DateTimeField(null=True)
+    reply = EncryptedTextField(blank=True)
+    reply_message = models.ForeignKey(Message, null=True, on_delete=models.SET_NULL)
+    amount = models.DecimalField(max_digits=16, decimal_places=4, null=True)
+    checked_at = models.DateTimeField(null=True)
+    settings = models.JSONField(default=dict)
+    updated_at = models.DateTimeField(auto_now=True)

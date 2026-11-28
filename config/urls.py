@@ -1,9 +1,14 @@
 from django.urls import path
 from django.contrib.auth.views import LogoutView
-from inbox import api_views, connection_views, integration_views, mcp_views, outbound_views, smtp_views, views
+from inbox import (
+    api_views, balance_views, connection_views, integration_views, mcp_views, outbound_views, smtp_views, views,
+)
 
 urlpatterns = [
     path("", views.home, name="home"),
+    path("balance/", balance_views.page, name="balance"),
+    path("balance/status/", balance_views.status, name="balance-status"),
+    path("balance/action/", balance_views.action, name="balance-action"),
     path("send/", outbound_views.send_sms, name="send-sms"),
     path("send/status/", outbound_views.status, name="outbound-status"),
     path("send/action/", outbound_views.action, name="outbound-action"),

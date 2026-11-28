@@ -4,6 +4,7 @@ import time
 from django.conf import settings
 from django.core.management.base import BaseCommand
 from django.db import close_old_connections
+from inbox import balance
 from inbox.connection import queued_import_at
 from inbox.models import SyncStatus
 from inbox.outbound import tick, waiting_for_setup_sms
@@ -13,7 +14,7 @@ from inbox.webhooks import deliver_webhooks
 
 
 class Command(BaseCommand):
-    help = "Import, forward, and send SMS."
+    help = "Import, forward, and send SMS and check SIM balance."
 
     def add_arguments(self, parser):
         parser.add_argument("--once", action="store_true")
@@ -27,20 +28,23 @@ class Command(BaseCommand):
         while not stop.is_set():
             close_old_connections()
             tick()
+            balance.tick()
             waiting = waiting_for_setup_sms()
+            fast_import = waiting or balance.waiting_for_reply()
             now = time.monotonic()
             import_due = now >= next_import
             if not import_due:
                 attempted_at = SyncStatus.objects.filter(pk=1).values_list("attempted_at", flat=True).first()
                 import_due = queued_import_at(attempted_at) is not None
-            if import_due or (waiting and now >= next_setup_import):
+            if import_due or (fast_import and now >= next_setup_import):
                 sync_once()
                 next_import = time.monotonic() + settings.POLL_INTERVAL
                 next_setup_import = time.monotonic() + 3
                 delivery_due = True
-            if not waiting:
+            if not fast_import:
                 next_setup_import = 0
                 refresh_phone_once()
+            if not waiting:
                 if delivery_due:
                     forward_pending(stop=stop)
                     deliver_webhooks(stop=stop)

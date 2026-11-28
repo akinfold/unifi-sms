@@ -14,7 +14,7 @@ from modem.client import ModemClient
 from modem.outbound import OutboundError, OutboundSimChanged, OutboundUnknown, validate_text
 
 from .connection import get_connection
-from .models import DeviceSettings, IntegrationSettings, OutboundMessage, OutboundProfile, OutboundSetup
+from .models import BalanceRun, DeviceSettings, IntegrationSettings, OutboundMessage, OutboundProfile, OutboundSetup
 from .rate_limits import reserve, window_key
 from .sms_service import ApiError
 from .trust import trust_lock
@@ -166,6 +166,10 @@ def setup_action(action, phone=None):
     if not identity or setup.connection_id != identity:
         raise ApiError("Start setup for the current LTE device.", 409)
     if action == "start" and setup.state == "number":
+        if BalanceRun.objects.filter(
+            connection_id=identity, state__in=("queued", "requesting", "waiting", "activating"),
+        ).exists():
+            raise ApiError("Wait for the current balance request to finish.", 409)
         setup.phone = _phone(phone)
         setup.state, setup.detail = "queued", "Waiting to test the first profile."
     elif action == "cancel" and setup.state in RUNNING:

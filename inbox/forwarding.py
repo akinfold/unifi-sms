@@ -27,7 +27,8 @@ def forwarding_lock():
 
 
 def queue_forward(message):
-    if message.saved_parts == message.total_parts and smtp_enabled(smtp_values()[0]):
+    if (not message.is_balance_reply and message.saved_parts == message.total_parts
+            and smtp_enabled(smtp_values()[0])):
         ForwardDelivery.objects.get_or_create(message=message)
 
 

@@ -5,8 +5,10 @@ import hashlib
 import re
 import shlex
 import time
+from contextlib import ExitStack
 from io import StringIO
 
+from .balance import balance_pdu, parse_cusd, ussd_code
 from .outbound import OutboundError, OutboundSimChanged, OutboundUnknown, submit_pdu
 from .qmi import open_wms
 from .ssh import SSHCommandError, command_deadline, read_command
@@ -253,7 +255,12 @@ while IFS= read -r command; do
         esac
     fi
     case "$command" in
-        '+CCID'|'+CRSM=176,12258,0,0,10'|'+CSCA?'|'+CMGS=?') ;;
+        '+CCID'|'+CIMI'|'+CUSD=?'|'+CUSD?'|'+CUSD=0'|'+CUSD=1'|'+CUSD=2'|'+CRSM=176,12258,0,0,10'|'+CSCA?'|'+CMGS=?') ;;
+        '+CUSD=1,"'*'",15')
+            code=${{command#?????????}}
+            code=${{code%????}}
+            case "$code" in ''|*[!0-9*#]*) exit 1;; esac
+            [ "${{#code}}" -le 32 ] || exit 1 ;;
         +CMGS=*)
             number=${{command#*=}}
             case "$number" in ''|*[!0-9]*) exit 1;; esac
@@ -400,6 +407,121 @@ done
     def _check_sim(self, expected_sim):
         if self._sim_identity() != expected_sim:
             raise OutboundSimChanged("The SIM has changed. Test the current SIM before sending.")
+
+    def balance_identity(self) -> tuple[str, str]:
+        """Return the SIM fingerprint and a home-network hint without retaining IMSI."""
+        try:
+            sim = self._sim_identity()
+            try:
+                lines = self._request("+CIMI")
+            except ATRejected:
+                lines = []
+            # CIMI does not identify the MNC length; five digits are only a hint.
+            prefix = next((line[:5] for line in lines if re.fullmatch(r"[0-9]{14,15}", line)), "")
+            return sim, prefix
+        except Exception:
+            raise OutboundError("Could not inspect the modem and SIM.") from None
+
+    def request_balance(self, profile, *, expected_sim, sms_profile=None):
+        """Send one carrier request without retrying an uncertain submission."""
+        try:
+            if self._channel is None or not expected_sim:
+                raise OutboundError("A locked modem session and a tested SIM are required.")
+            if not isinstance(profile, dict):
+                raise ValueError("Invalid balance profile.")
+            transport = profile.get("transport")
+            if transport in ("ussd", "code"):
+                code = ussd_code(profile.get("code"))
+                timeout = profile.get("timeout", 30)
+                max_timeout = 300 if transport == "code" else 60
+                if (isinstance(timeout, bool) or not isinstance(timeout, (float, int))
+                        or not 1 <= timeout <= max_timeout):
+                    raise ValueError("Invalid USSD timeout.")
+                self._request("+CUSD=?")
+                self._check_sim(expected_sim)
+                return self._request_ussd(code, min(timeout, 60), sms_reply=transport == "code")
+            if transport != "sms":
+                raise OutboundError("This balance profile has no modem request.")
+            selected = "qmi_ims_off" if sms_profile is None else sms_profile
+            if selected not in ("at_pdu", "qmi_ims_off", "qmi_ims_on"):
+                raise OutboundError("Unsupported sending profile.")
+            pdu = balance_pdu(profile.get("destination"), profile.get("text", ""))
+            if selected == "at_pdu":
+                self._check_sim(expected_sim)
+                self._send_at(pdu)
+            else:
+                with ExitStack() as stack:
+                    try:
+                        qmi_pdu = balance_pdu(
+                            profile.get("destination"), profile.get("text", ""), self._sms_center()
+                        )
+                        wms = stack.enter_context(open_wms(self._ssh, self.timeout, self.device))
+                    except Exception:
+                        if sms_profile is not None:
+                            raise
+                        wms = None
+                    self._check_sim(expected_sim)
+                    # Only preparation can choose another route. A send is never replayed.
+                    if wms is None:
+                        self._send_at(pdu)
+                    else:
+                        wms.send(qmi_pdu, selected == "qmi_ims_on")
+            return None
+        except (OutboundError, OutboundUnknown, ValueError):
+            raise
+        except Exception:
+            raise OutboundError("Could not prepare the modem for a balance request.") from None
+
+    def _request_ussd(self, code, timeout, *, sms_reply=False):
+        command = f'+CUSD=1,"{code}",15'
+        budget = [0]
+        deadline = time.monotonic() + timeout
+        original = next((line for line in self._request("+CUSD?")
+                         if re.fullmatch(r"\+CUSD:\s*[01]", line)), None)
+        if original is None:
+            raise OutboundError("Could not read the USSD reporting mode.")
+        restore = original.rsplit(":", 1)[1].strip() == "0"
+        started = False
+        accepted = False
+        try:
+            self._channel.settimeout(timeout)
+            # A failed write may still have reached the modem. Never replay it.
+            started = True
+            self._channel.sendall(command + "\n")
+            while self._read_line(deadline, budget) != _BEGIN:
+                pass
+            result = None
+            received = False
+            while True:
+                line = self._read_line(deadline, budget)
+                if line == "OK":
+                    accepted = True
+                elif line.startswith("+CUSD:"):
+                    result = parse_cusd(line)
+                    received = True
+                elif line == "ERROR" or line.startswith(("+CMS ERROR:", "+CME ERROR:")):
+                    raise OutboundError("The modem rejected the USSD request.")
+                if accepted and sms_reply:
+                    return None
+                if accepted and received:
+                    return result
+        except (OutboundError, OutboundUnknown):
+            raise
+        except Exception:
+            raise OutboundUnknown("The modem did not confirm the USSD result.") from None
+        finally:
+            if started:
+                if not (sms_reply and accepted):
+                    try:
+                        self._request("+CUSD=2")
+                    except Exception:
+                        pass
+                # Cancelling an acknowledged code could abort the carrier's SMS reply.
+                if restore:
+                    try:
+                        self._request("+CUSD=0")
+                    except Exception:
+                        pass
 
     def send_sms(self, profile, phone, text, *, expected_sim):
         """Submit one message after checking the SIM while the modem lock is held."""

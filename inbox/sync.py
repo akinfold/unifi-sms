@@ -8,6 +8,7 @@ from django.db import transaction
 from django.utils import timezone
 from modem.client import ModemClient
 from modem.pdu import decode_pdu
+from . import balance
 from .connection import get_connection
 from .models import Message, Receipt, SyncStatus
 from .outbound import connection_id, match_setup_receipt
@@ -36,7 +37,7 @@ def importer_lock():
             fcntl.flock(stream, fcntl.LOCK_UN)
 
 
-def archive(source, slot, pdu, *, device_identity=""):
+def archive(source, slot, pdu, *, device_identity="", sim_identity=""):
     digest = fingerprint(source, pdu)
     # A durable transaction must finish before any modem deletion can start.
     with transaction.atomic(durable=True):
@@ -90,7 +91,9 @@ def archive(source, slot, pdu, *, device_identity=""):
         message.received_at = min(message.received_at, decoded.received_at)
         message.read_at = None
         message.save()
-        if not device_identity or not match_setup_receipt(device_identity, decoded):
+        setup_probe = device_identity and match_setup_receipt(device_identity, decoded)
+        balance_reply = not setup_probe and balance.match_reply(device_identity, sim_identity, message)
+        if not setup_probe and not balance_reply:
             queue_forward(message)
             queue_webhook(message)
         return receipt
@@ -142,13 +145,23 @@ def sync_once(client_factory=ModemClient):
         try:
             with client_factory(**config.client_kwargs) as client:
                 pdus = client.list_pdus()
+                sim_identity = ""
+                if device_identity and balance.waiting_for_reply(device_identity):
+                    try:
+                        sim_identity, _ = client.balance_identity()
+                    except Exception:
+                        # An unverified SIM cannot claim balance replies.
+                        pass
                 present = [fingerprint(source, pdu) for pdu in pdus.values()]
                 Receipt.objects.filter(source=source, cleared_at__isnull=True).exclude(
                     fingerprint__in=present
                 ).update(cleared_at=timezone.now())
                 for slot, pdu in pdus.items():
                     try:
-                        receipt = archive(source, slot, pdu, device_identity=device_identity)
+                        receipt = archive(
+                            source, slot, pdu, device_identity=device_identity,
+                            sim_identity=sim_identity,
+                        )
                     except ValueError:
                         rejected += 1
                         continue

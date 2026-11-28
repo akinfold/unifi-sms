@@ -32,7 +32,7 @@ def webhook_lock():
 
 
 def queue_webhook(message):
-    if message.saved_parts != message.total_parts or not webhook_active():
+    if message.is_balance_reply or message.saved_parts != message.total_parts or not webhook_active():
         return None
 
     event_id = uuid.uuid4()
